@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'mailforint@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidGameTrack(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.title is string && data.title.size() <= 200
+        && data.difficulty is string && data.difficulty.size() <= 60
+        && data.stages is list && data.stages.size() <= 50;
+    }
+
+    function isValidStudentRecord(data) {
+      return data.id is string && data.id.size() <= 128
+        && data.studentName is string && data.studentName.size() <= 150
+        && data.trackId is string && data.trackId.size() <= 128
+        && data.score is number && data.score >= 0;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Game tracks: educational levels created and customized by teachers
+    match /game_tracks/{trackId} {
+      allow read, write: if isValidId(trackId);
+    }
+
+    // Student progress telemetry
+    match /student_records/{recordId} {
+      allow read, write: if isValidId(recordId);
+    }
+
+    // Admin collection
+    match /admins/{adminId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+  }
+}

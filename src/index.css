@@ -1,0 +1,89 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html, body, #root {
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    height: 100%;
+  }
+
+  body {
+    font-family: 'Rubik', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-arabic {
+  font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', serif;
+  letter-spacing: 0.02em;
+}
+
+.font-hebrew {
+  font-family: 'Rubik', sans-serif;
+}
+
+/* Custom scrollbars for game dialogues */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.5);
+  border-radius: 9999px;
+}
+@keyframes floatFade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.6);
+  }
+  20% {
+    opacity: 1;
+    transform: translate(-50%, -75%) scale(1.15);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -120%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -150%) scale(0.9);
+  }
+}
+
+.animate-float-fade {
+  animation: floatFade 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes gleamBurst {
+  0% {
+    opacity: 0;
+    transform: scale(0.4) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.3) rotate(90deg);
+    filter: brightness(1.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.8) rotate(180deg);
+  }
+}
+
+.animate-gleam {
+  animation: gleamBurst 0.65s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes gentleShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.animate-shake {
+  animation: gentleShake 0.3s ease-in-out;
+}

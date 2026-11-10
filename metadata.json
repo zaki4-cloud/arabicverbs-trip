@@ -1,0 +1,6 @@
+{
+  "name": "הרפתקת הדקדוק בערבית | Arabic Grammar Adventure",
+  "description": "משחק הרפתקה לימודי בנייד לדקדוק והטיות פעלים בערבית לתלמידי תיכון, סימולטור אינטראקטיבי, ממשק מורה מקיף ומפרט טכני מלא ל-GDevelop 5.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

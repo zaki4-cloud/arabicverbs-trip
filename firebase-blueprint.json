@@ -1,0 +1,93 @@
+{
+  "entities": {
+    "GameTrack": {
+      "title": "GameTrack",
+      "description": "Represents an educational Arabic grammar game track configured by teachers",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "difficulty": {
+          "type": "string",
+          "enum": ["basic", "intermediate", "advanced", "מתחילים", "בינוני", "מתקדמים"]
+        },
+        "isPublished": {
+          "type": "boolean"
+        },
+        "stages": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "title", "difficulty", "stages"]
+    },
+    "StudentRecord": {
+      "title": "StudentRecord",
+      "description": "Student progress record and gameplay telemetry",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "studentName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "trackId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "trackTitle": {
+          "type": "string",
+          "maxLength": 150
+        },
+        "currentStageIndex": {
+          "type": "number"
+        },
+        "score": {
+          "type": "number"
+        },
+        "correctAnswers": {
+          "type": "number"
+        },
+        "totalQuestionsAnswered": {
+          "type": "number"
+        },
+        "completed": {
+          "type": "boolean"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": ["id", "studentName", "trackId", "score"]
+    }
+  },
+  "firestore": {
+    "/game_tracks/{trackId}": {
+      "schema": {
+        "$ref": "#/entities/GameTrack"
+      },
+      "description": "Educational grammar tracks created or modified by teachers"
+    },
+    "/student_records/{recordId}": {
+      "schema": {
+        "$ref": "#/entities/StudentRecord"
+      },
+      "description": "Progress submissions and telemetry of students navigating through stages"
+    }
+  }
+}
