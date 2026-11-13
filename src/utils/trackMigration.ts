@@ -41,8 +41,8 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
 
       const cleanedPackages = (track.packages || []).map((pkg) => ({
         ...pkg,
-        tenses: (pkg.tenses || []).map(cleanTenseLabel).filter(Boolean),
-        persons: (pkg.persons || []).map(cleanPersonLabel).filter(Boolean),
+        tenses: Array.from(new Set((pkg.tenses || []).map(cleanTenseLabel).filter(Boolean))),
+        persons: Array.from(new Set((pkg.persons || []).map(cleanPersonLabel).filter(Boolean))),
       }));
 
       return {
@@ -210,5 +210,12 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
       };
       }),
     };
+  })
+  .sort((a, b) => {
+    const order: Record<string, number> = { basic: 0, intermediate: 1, advanced: 2 };
+    const oa = order[a.difficulty] ?? 99;
+    const ob = order[b.difficulty] ?? 99;
+    if (oa !== ob) return oa - ob;
+    return (a.title || '').localeCompare(b.title || '', 'he');
   });
 }

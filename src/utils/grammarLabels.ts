@@ -19,7 +19,7 @@ export function cleanPersonLabel(person: string): string {
 
   // Exact pronoun mapping - strip Arabic, 'נסתר', 'נוכח', 'מדבר', and parentheses
   if (str.includes('אני') || str.includes('أَنَا') || (str.includes('מדבר') && !str.includes('מדברים'))) {
-    return 'הוא' === str ? 'הוא' : 'אני';
+    return 'אני';
   }
   if (str.includes('אנחנו') || str.includes('نَحْنُ') || str.includes('מדברים')) {
     return 'אנחנו';
@@ -30,22 +30,22 @@ export function cleanPersonLabel(person: string): string {
   if ((str.includes('את') && !str.includes('אתה') && !str.includes('אתם') && !str.includes('אתן')) || str.includes('أَنْتِ') || str.includes('נוכחת')) {
     return 'את';
   }
-  if (str.includes('אתם') || str.includes('أَنْتُمْ') || str.includes('נוכחים')) {
+  if (str.includes('אתם') || str.includes('אַנְתֻם') || str.includes('أَنْتُمْ') || str.includes('נוכחים')) {
     return 'אתם';
   }
   if (str.includes('אתן') || str.includes('أَنْتُنَّ') || str.includes('נוכחות')) {
     return 'אתן';
   }
-  if (str.includes('הוא') || str.includes('هُوَ') || (str.includes('נסתר') && !str.includes('נסתרת') && !str.includes('נסתרים') && !str.includes('נסתרות'))) {
+  if (str.includes('הוא') || str.includes('הֻוַ') || str.includes('هُوَ') || (str.includes('נסתר') && !str.includes('נסתרת') && !str.includes('נסתרים') && !str.includes('נסתרות'))) {
     return 'הוא';
   }
-  if (str.includes('היא') || str.includes('هِيَ') || str.includes('נסתרת')) {
+  if (str.includes('היא') || str.includes('הִיא') || str.includes('هِيَ') || str.includes('נסתרת')) {
     return 'היא';
   }
-  if (str.includes('הם') || str.includes('هُمْ') || str.includes('נסתרים')) {
+  if (str.includes('הם') || str.includes('הֻם') || str.includes('هُمْ') || str.includes('נסתרים')) {
     return 'הם';
   }
-  if (str.includes('הן') || str.includes('هُنَّ') || str.includes('נסתרות')) {
+  if (str.includes('הן') || str.includes('הֻן') || str.includes('هُنَّ') || str.includes('נסתרות')) {
     return 'הן';
   }
   if (str.includes('זוגי') || str.includes('أَنْتُمَا') || str.includes('هُمَا')) {
