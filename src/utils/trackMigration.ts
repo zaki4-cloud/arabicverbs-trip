@@ -1,6 +1,7 @@
 import { GameTrack, GameStage, StageNode, Question } from '../types/game';
 import { LANDSCAPE_PRESETS, generateStageScenesWithLandmarks } from '../data/landmarkPresets';
 import { INITIAL_GAME_TRACKS } from '../data/initialPackages';
+import { cleanTenseLabel, cleanPersonLabel } from './grammarLabels';
 
 export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
   const defaultTrack = INITIAL_GAME_TRACKS[0];
@@ -17,8 +18,31 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
       });
     }
 
+    const defaultAchievements =
+      track.achievements && track.achievements.length > 0
+        ? track.achievements
+        : track.id.includes('basic') || track.title.includes('בניין 1') || track.title.includes('עבר')
+        ? [
+            'שליטה מלאה בזיהוי גופים וסיומות בפועל השלם בעבר',
+            'הבחנה מדויקת במשמעות בניין 1 הבסיסי ותרגום שוטף',
+            'הצלחה בהתאמת צמדים מורפולוגיים ומענה נכון על שאלות המסע',
+          ]
+        : [
+            'שליטה מלאה בזיהוי גופים וזמנים בבניינים 1, 2 ו-5',
+            'הבחנה בין פעולת גרימה לפעולה חוזרת ורפלקסיבית',
+            'הצלחה בהתאמת צמדים מורפולוגיים ותרגום שוטף',
+          ];
+
+    const cleanedPackages = (track.packages || []).map((pkg) => ({
+      ...pkg,
+      tenses: (pkg.tenses || []).map(cleanTenseLabel).filter(Boolean),
+      persons: (pkg.persons || []).map(cleanPersonLabel).filter(Boolean),
+    }));
+
     return {
       ...track,
+      achievements: defaultAchievements,
+      packages: cleanedPackages,
       questions: mergedQuestions,
       stages: track.stages.map((stage, idx) => {
         const displacedPackageIds: string[] = [];
@@ -37,9 +61,9 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
           } else if (n.landmarkType === 'stone_gate') {
             pos = { x: 72, y: 44 };
           } else if (n.landmarkType === 'white_waterfalls') {
-            pos = { x: 34, y: 56 };
+            pos = { x: 68, y: 44 };
           } else if (n.landmarkType === 'bat_cave') {
-            pos = { x: 64, y: 44 };
+            pos = { x: 34, y: 56 };
           }
 
           let type = n.type;

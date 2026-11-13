@@ -24,9 +24,13 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   );
   const [topic, setTopic] = useState(existingQuestion?.topic || 'בניין 1 (فَعَلَ)');
   const [prompt, setPrompt] = useState(existingQuestion?.prompt || '');
-  const [explanation, setExplanation] = useState(
-    existingQuestion?.explanation || 'הסבר לתלמיד מדוע תשובה זו נכונה ומה הכלל הדקדוקי...'
-  );
+  const [explanation, setExplanation] = useState<string>(() => {
+    const raw = existingQuestion?.explanation?.trim();
+    if (!raw || raw.startsWith('הסבר לתלמיד מדוע תשובה זו נכונה')) {
+      return '';
+    }
+    return raw;
+  });
 
   // Stage & Station placement
   // Find which stage and station currently contains this question, if any
@@ -54,9 +58,16 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
   const initialMC = existingQuestion?.type === 'multiple_choice' ? (existingQuestion as MultipleChoiceQuestion) : null;
   const [arabicSample, setArabicSample] = useState(initialMC?.arabicSample || '');
   const [correctAnswer, setCorrectAnswer] = useState(initialMC?.correctAnswer || '');
-  const [distractors, setDistractors] = useState<string[]>(
-    initialMC?.distractors || ['מסיח 1 שגוי', 'מסיח 2 שגוי', 'מסיח 3 שגוי']
-  );
+  const [distractors, setDistractors] = useState<string[]>(() => {
+    if (initialMC?.distractors && initialMC.distractors.length > 0) {
+      const cleaned = initialMC.distractors.map((d) =>
+        d.startsWith('מסיח ') && d.endsWith(' שגוי') ? '' : d
+      );
+      if (cleaned.length > 0) return cleaned;
+    }
+    return ['', '', ''];
+  });
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Matching Pairs Specific State
   const initialMatch = existingQuestion?.type === 'matching_pairs' ? (existingQuestion as MatchingPairsQuestion) : null;
@@ -104,12 +115,24 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim()) return;
+    setFormError(null);
+    if (!prompt.trim()) {
+      setFormError('נא להזין את שאלת המסע / ההנחיה לתלמיד.');
+      return;
+    }
 
     if (type === 'multiple_choice') {
-      if (!correctAnswer.trim()) return;
-      const validDistractors = distractors.filter((d) => d.trim().length > 0);
-      if (validDistractors.length === 0) return;
+      if (!correctAnswer.trim()) {
+        setFormError('נא להזין את התשובה הנכונה לשאלה.');
+        return;
+      }
+      const validDistractors = distractors
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0 && !d.startsWith('מסיח '));
+      if (validDistractors.length === 0) {
+        setFormError('נא להזין לפחות תשובת מסיח (תשובה שגויה) אחת.');
+        return;
+      }
 
       const newQ: MultipleChoiceQuestion = {
         id: existingQuestion?.id || `q-mc-${Date.now()}`,
@@ -125,7 +148,10 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
       onSave(newQ, selectedStageId, selectedNodeId);
     } else {
       const validPairs = pairs.filter((p) => p.arabic.trim() && p.target.trim());
-      if (validPairs.length < 2) return;
+      if (validPairs.length < 2) {
+        setFormError('נא להזין לפחות שני צמדים תקינים להתאמה.');
+        return;
+      }
 
       const newQ: MatchingPairsQuestion = {
         id: existingQuestion?.id || `q-match-${Date.now()}`,
@@ -363,8 +389,8 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
                         type="text"
                         value={dist}
                         onChange={(e) => handleUpdateDistractor(idx, e.target.value)}
-                        placeholder={`מסיח שגוי #${idx + 1}`}
-                        className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-purple-400"
+                        placeholder={`מסיח שגוי #${idx + 1} (למשל: תרגום שגוי או גוף אחר)...`}
+                        className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-purple-400"
                       />
                       {distractors.length > 1 && (
                         <button
@@ -436,14 +462,19 @@ export const QuestionEditorModal: React.FC<QuestionEditorModalProps> = ({
               הסבר פדגוגי מפורט (יוצג במשוב בזמן אמת, במיוחד בלמידה מטעויות):
             </label>
             <textarea
-              required
               rows={2}
               value={explanation}
               onChange={(e) => setExplanation(e.target.value)}
-              placeholder="הסבר קצר על הכלל הדקדוקי כדי לאפשר למידה מיידית מהטעות..."
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 focus:outline-none focus:border-purple-400 leading-relaxed"
+              placeholder="הסבר לתלמיד מדוע תשובה זו נכונה ומה הכלל הדקדוקי (יוצג לאחר המענה)..."
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-purple-400 leading-relaxed"
             />
           </div>
+
+          {formError && (
+            <div className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-xl text-rose-300 text-xs font-bold text-center">
+              {formError}
+            </div>
+          )}
 
           {/* Submit */}
           <div className="pt-3 border-t border-slate-800 flex justify-end gap-3">

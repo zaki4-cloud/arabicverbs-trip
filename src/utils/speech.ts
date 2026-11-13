@@ -22,6 +22,11 @@ export function speakArabic(text: string): void {
       utterance.voice = arabicVoice;
     }
 
+    utterance.onerror = (e) => {
+      // SpeechSynthesis canceled on blur/switching tabs is normal in mobile browsers (e.error === 'interrupted' or 'canceled')
+      console.warn('SpeechSynthesis non-fatal event:', e.error);
+    };
+
     window.speechSynthesis.speak(utterance);
   }
 }

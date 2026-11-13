@@ -114,6 +114,7 @@ export interface GameTrack {
   questions: Question[];
   stages: GameStage[];
   shareCode?: string;
+  achievements?: string[]; // Custom level learning achievements / goals
 }
 
 export interface StudentProgressRecord {
@@ -128,4 +129,6 @@ export interface StudentProgressRecord {
   correctAnswers: number;
   totalQuestions: number;
   completedAt: number;
+  timeSpentSeconds?: number; // Cumulative game usage duration in seconds
 }
+

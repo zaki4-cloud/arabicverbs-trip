@@ -6,6 +6,8 @@ import { speakArabic } from '../../utils/speech';
 import { PedagogicalExplanationView } from '../Common/PedagogicalExplanationView';
 import { resolveImageUrl } from '../../utils/imageUrl';
 
+import { cleanTenseLabel, cleanPersonLabel } from '../../utils/grammarLabels';
+
 interface KnowledgePopupProps {
   pkg: KnowledgePackage;
   onUnderstood: (bonusPoints: number) => void;
@@ -20,6 +22,9 @@ export const KnowledgePopup: React.FC<KnowledgePopupProps> = ({
   const [isCollecting, setIsCollecting] = useState(false);
   const [canScrollMore, setCanScrollMore] = useState(false);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
+
+  const cleanTenses = (pkg.tenses || []).map(cleanTenseLabel).filter(Boolean);
+  const cleanPersons = (pkg.persons || []).map(cleanPersonLabel).filter(Boolean);
 
   const checkScroll = () => {
     if (!scrollBodyRef.current) return;
@@ -69,7 +74,7 @@ export const KnowledgePopup: React.FC<KnowledgePopupProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in select-none">
-      <div className="relative bg-[#0B1120] border border-slate-700/80 rounded-2xl max-w-2xl w-full max-h-[92vh] sm:max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div className="relative bg-[#0B1120] border border-slate-700/80 rounded-2xl max-w-2xl w-full max-h-[88vh] flex flex-col shadow-2xl overflow-hidden">
         {/* Header Banner - Dark Navy with Vivid Gold Accent */}
         <div className="relative bg-[#0B1120] p-4 sm:p-5 border-b border-slate-800/80 flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3">
@@ -100,20 +105,24 @@ export const KnowledgePopup: React.FC<KnowledgePopupProps> = ({
           ref={scrollBodyRef}
           className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-5 text-[#E2E8F0] scrollbar-thin scrollbar-thumb-slate-700 overscroll-contain"
         >
-          {/* Metadata badges - Dark Glassmorphism chips */}
+          {/* Metadata badges - Clean Hebrew without Arabic or unnecessary grammatical tags */}
           <div className="flex flex-wrap gap-2 text-xs">
             <div className="flex items-center gap-1.5 bg-[#0f172a]/90 backdrop-blur-sm border border-slate-700/80 px-2.5 py-1 rounded-lg text-[#E2E8F0]">
               <Layers className="w-3.5 h-3.5 text-[#FACC15]" />
               <span>{pkg.binyanim.join(', ')}</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-[#0f172a]/90 backdrop-blur-sm border border-slate-700/80 px-2.5 py-1 rounded-lg text-[#E2E8F0]">
-              <Clock className="w-3.5 h-3.5 text-[#FACC15]" />
-              <span>{pkg.tenses.join(', ')}</span>
-            </div>
-            <div className="flex items-center gap-1.5 bg-[#0f172a]/90 backdrop-blur-sm border border-slate-700/80 px-2.5 py-1 rounded-lg text-[#E2E8F0]">
-              <Users className="w-3.5 h-3.5 text-[#FACC15]" />
-              <span>{pkg.persons.join(', ')}</span>
-            </div>
+            {cleanTenses.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-[#0f172a]/90 backdrop-blur-sm border border-slate-700/80 px-2.5 py-1 rounded-lg text-[#E2E8F0]">
+                <Clock className="w-3.5 h-3.5 text-[#FACC15]" />
+                <span>{cleanTenses.join(', ')}</span>
+              </div>
+            )}
+            {cleanPersons.length > 0 && (
+              <div className="flex items-center gap-1.5 bg-[#0f172a]/90 backdrop-blur-sm border border-slate-700/80 px-2.5 py-1 rounded-lg text-[#E2E8F0]">
+                <Users className="w-3.5 h-3.5 text-[#FACC15]" />
+                <span>גוף: {cleanPersons.join(', ')}</span>
+              </div>
+            )}
           </div>
 
           {/* Explanation Section - Dark Glassmorphism Card */}
@@ -206,7 +215,7 @@ export const KnowledgePopup: React.FC<KnowledgePopupProps> = ({
         )}
 
         {/* Footer Action: The Mandatory Prominent "הבנתי!" Button in Vibrant Purple */}
-        <div className="p-4 bg-[#0B1120] border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div className="p-3 sm:p-4 bg-[#0B1120] border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-2.5 shrink-0">
           <div className="text-xs text-slate-400 flex items-center gap-1.5">
             <Sparkles className="w-4 h-4 text-[#FACC15] shrink-0" />
             <span>סגירה תעניק לכם 50 נקודות בונוס בתרמיל המסע!</span>

@@ -127,14 +127,14 @@ export const LANDSCAPE_PRESETS: LandscapePreset[] = [
         title: 'המפלים הלבנים',
         hebrewName: 'המפלים הלבנים הרב-שלביים',
         description: 'מפלי מים קוצפים ומלבינים הזורמים במורד מדרגות הסלע.',
-        defaultPosition: { x: 34, y: 56 },
+        defaultPosition: { x: 68, y: 44 },
       },
       {
         type: 'bat_cave',
         title: 'מערת העטלפים',
         hebrewName: 'מערת העטלפים המסתורית',
         description: 'מערה אפלולית בצלע ההר שממנה מגיחים עטלפים בין הצללים.',
-        defaultPosition: { x: 64, y: 44 },
+        defaultPosition: { x: 34, y: 56 },
       },
       {
         type: 'heaven_stairs',
@@ -371,33 +371,47 @@ export function generateStageScenesWithLandmarks(
     return scenes;
   }
 
+  const totalScenes = stagePreset.scenesTemplate.length;
+
   return stagePreset.scenesTemplate.map((tmpl, sceneIdx) => {
     const sceneNodes: StageNode[] = [];
 
-    // Include treasure in first scene if available - placed strictly on lower-left
-    if (tmpl.includeTreasure) {
-      const treasures = allNodes.filter((n) => n.type === 'treasure');
-      treasures.forEach((tr, tIdx) => {
+    // Distribute dedicated treasures to appropriate scene (scene 0 for start, 1 for mid, 2 for end)
+    const treasures = allNodes.filter((n) => n.type === 'treasure');
+    treasures.forEach((tr, tIdx) => {
+      let targetSceneIdx = 0;
+      if (tr.id.includes('-mid') || (tr.position && tr.position.x >= 40 && tr.position.x < 65)) {
+        targetSceneIdx = Math.min(1, totalScenes - 1);
+      } else if (tr.id.includes('-end') || (tr.position && tr.position.x >= 65)) {
+        targetSceneIdx = Math.max(0, totalScenes - 1);
+      } else if (tr.id.includes('-start') || (tr.position && tr.position.x < 40)) {
+        targetSceneIdx = 0;
+      } else {
+        // Fallback: distribute evenly
+        targetSceneIdx = Math.min(tIdx, totalScenes - 1);
+      }
+
+      if (sceneIdx === targetSceneIdx) {
         sceneNodes.push({
           ...tr,
-          position: { x: 24 + tIdx * 16, y: 72 },
+          position: tr.position || { x: 24, y: 72 },
         });
-      });
-    }
+      }
+    });
 
-    // Include landmarks matching this template's station types
+    // Include landmarks & stations matching this template's station types
     tmpl.stationTypes.forEach((stType, stIdx) => {
       const matchedNode = allNodes.find((n) => n.landmarkType === stType);
       if (matchedNode) {
-        // If there's a treasure, place the station on upper-right (x: 72, y: 44) to prevent ANY overlap
-        const hasTreasureInScene = tmpl.includeTreasure;
+        // Preserve position or use clean template layout
+        const hasTreasureInThisScene = sceneNodes.some((n) => n.type === 'treasure');
         let pos = matchedNode.position;
-        if (hasTreasureInScene && stIdx === 0) {
+        if (hasTreasureInThisScene && stIdx === 0) {
           pos = { x: 72, y: 44 };
         } else if (tmpl.stationTypes.length === 1) {
-          pos = { x: 50, y: 50 };
+          pos = matchedNode.position || { x: 50, y: 50 };
         } else if (tmpl.stationTypes.length === 2) {
-          pos = stIdx === 0 ? { x: 34, y: 56 } : { x: 68, y: 44 };
+          pos = matchedNode.position || (stIdx === 0 ? { x: 34, y: 56 } : { x: 68, y: 44 });
         }
 
         sceneNodes.push({

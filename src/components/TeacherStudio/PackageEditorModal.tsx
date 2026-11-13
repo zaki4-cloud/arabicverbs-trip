@@ -32,6 +32,7 @@ import {
 } from '../../utils/pedagogicalText';
 import { PedagogicalExplanationView } from '../Common/PedagogicalExplanationView';
 import { resolveImageUrl } from '../../utils/imageUrl';
+import { cleanTenseLabel, cleanPersonLabel } from '../../utils/grammarLabels';
 
 interface PackageEditorModalProps {
   existingPackage?: KnowledgePackage | null;
@@ -54,25 +55,25 @@ const ALL_BINYANIM = [
 ];
 
 const ALL_TENSES = [
-  'עבר (الماضي)',
-  'עתיד (المضارع)',
-  'ציווי (الأמר)',
-  'בינוני פועל (اسم الفاعل)',
-  'בינוני פעול (اسم المفعول)'
+  'עבר',
+  'עתיד',
+  'ציווי',
+  'בינוני פועל',
+  'בינוני פעול'
 ];
 
 const ALL_PERSONS = [
-  'מדבר (أَنَا - אני)',
-  'מדברים (نَحْنُ - אנחנו)',
-  'נוכח (أَنْتَ - אתה)',
-  'נוכחת (أَنْتِ - את)',
-  'נוכחים (أَنْتُمْ - אתם)',
-  'נוכחות (أَنْتُنَّ - אתן)',
-  'נסתר (هُوَ - הוא)',
-  'נסתרת (هِيَ - היא)',
-  'נסתרים (هُمْ - הם)',
-  'נסתרות (هُنَّ - הן)',
-  'זוגי (أَنْتُمَا / هُمَا)'
+  'אני',
+  'אנחנו',
+  'אתה',
+  'את',
+  'אתם',
+  'אתן',
+  'הוא',
+  'היא',
+  'הם',
+  'הן',
+  'שניים (זוגי)'
 ];
 
 const SAMPLE_IMAGES = [
@@ -183,12 +184,18 @@ export const PackageEditorModal: React.FC<PackageEditorModalProps> = ({
   const [selectedBinyanim, setSelectedBinyanim] = useState<string[]>(
     existingPackage?.binyanim || [ALL_BINYANIM[0]]
   );
-  const [selectedTenses, setSelectedTenses] = useState<string[]>(
-    existingPackage?.tenses || [ALL_TENSES[0], ALL_TENSES[1]]
-  );
-  const [selectedPersons, setSelectedPersons] = useState<string[]>(
-    existingPackage?.persons || [ALL_PERSONS[0], ALL_PERSONS[2], ALL_PERSONS[6]]
-  );
+  const [selectedTenses, setSelectedTenses] = useState<string[]>(() => {
+    if (existingPackage?.tenses && existingPackage.tenses.length > 0) {
+      return existingPackage.tenses.map(cleanTenseLabel).filter(Boolean);
+    }
+    return [ALL_TENSES[0]];
+  });
+  const [selectedPersons, setSelectedPersons] = useState<string[]>(() => {
+    if (existingPackage?.persons && existingPackage.persons.length > 0) {
+      return existingPackage.persons.map(cleanPersonLabel).filter(Boolean);
+    }
+    return ['אני', 'אתה', 'הוא'];
+  });
   const [explanation, setExplanation] = useState(existingPackage?.explanation || '');
   const [sections, setSections] = useState<ExplanationSection[]>(() =>
     parseExplanationText(existingPackage?.explanation || '')
@@ -472,7 +479,7 @@ export const PackageEditorModal: React.FC<PackageEditorModalProps> = ({
                       setSelectedStageId(newStageId);
                       const stg = stages.find((s) => s.id === newStageId);
                       if (stg) {
-                        setSelectedNodeId(`treasure-${stg.id}`);
+                        setSelectedNodeId(`treasure-${stg.id}-start`);
                       }
                     }}
                     className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-purple-400 transition-colors"

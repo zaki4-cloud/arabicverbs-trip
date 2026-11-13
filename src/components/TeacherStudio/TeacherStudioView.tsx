@@ -23,6 +23,7 @@ import {
   LogOut,
   UserCheck,
   MapPin,
+  Cpu,
 } from 'lucide-react';
 import {
   GameTrack,
@@ -36,6 +37,7 @@ import { QuestionEditorModal } from './QuestionEditorModal';
 import { TrackEditorModal } from './TrackEditorModal';
 import { PedagogicalExplanationView } from '../Common/PedagogicalExplanationView';
 import { resolveImageUrl } from '../../utils/imageUrl';
+import { formatDurationHebrew, cleanTenseLabel, cleanPersonLabel } from '../../utils/grammarLabels';
 import { auth, googleProvider } from '../../firebase/config';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
@@ -43,6 +45,10 @@ import {
   saveAllGameTracksToFirestore,
   deleteGameTrackFromFirestore,
 } from '../../firebase/firestoreService';
+import {
+  LANDSCAPE_PRESETS,
+  generateStageScenesWithLandmarks,
+} from '../../data/landmarkPresets';
 
 interface TeacherStudioViewProps {
   tracks: GameTrack[];
@@ -51,6 +57,7 @@ interface TeacherStudioViewProps {
   onUpdateTracks: (tracks: GameTrack[]) => void;
   onReturnToGame: () => void;
   onLockStudio?: () => void;
+  onOpenGDevelopSpec?: () => void;
 }
 
 export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
@@ -60,6 +67,7 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   onUpdateTracks,
   onReturnToGame,
   onLockStudio,
+  onOpenGDevelopSpec,
 }) => {
   const [activeTab, setActiveTab] = useState<'tracks' | 'packages' | 'questions' | 'analytics' | 'export_import'>('tracks');
   const [copiedLink, setCopiedLink] = useState(false);
@@ -214,15 +222,24 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
 
     let updatedStages = currentTrack.stages;
     if (targetStageId) {
-      updatedStages = currentTrack.stages.map((stg) => {
+      updatedStages = currentTrack.stages.map((stg, sIdx) => {
+        const preset =
+          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+          LANDSCAPE_PRESETS[sIdx] ||
+          LANDSCAPE_PRESETS[0];
+
         // If this stage is NOT targetStageId, remove pkg.id from its packageIds and nodes
         if (stg.id !== targetStageId) {
+          const newPackageIds = (stg.packageIds || []).filter((id) => id !== pkg.id);
+          const nodes = stg.nodes
+            .filter((n) => !(n.type === 'treasure' && n.packageId === pkg.id))
+            .map((n) => (n.packageId === pkg.id ? { ...n, packageId: undefined } : n));
+          const scenes = generateStageScenesWithLandmarks(preset, nodes);
           return {
             ...stg,
-            packageIds: (stg.packageIds || []).filter((id) => id !== pkg.id),
-            nodes: stg.nodes.map((n) =>
-              n.packageId === pkg.id ? { ...n, packageId: undefined } : n
-            ),
+            packageIds: newPackageIds,
+            nodes,
+            scenes,
           };
         }
 
@@ -232,17 +249,13 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           ? existingPkgIds
           : [...existingPkgIds, pkg.id];
 
-        let nodes = [...stg.nodes];
-
-        // Clear packageId from other nodes in this stage
-        nodes = nodes.map((n) =>
-          n.packageId === pkg.id && n.id !== targetNodeId
-            ? { ...n, packageId: undefined }
-            : n
-        );
+        // Clean any previous placement of this package in the target stage
+        let nodes = stg.nodes
+          .filter((n) => !(n.type === 'treasure' && n.packageId === pkg.id))
+          .map((n) => (n.packageId === pkg.id ? { ...n, packageId: undefined } : n));
 
         if (targetNodeId && !targetNodeId.startsWith('treasure-')) {
-          // Attached to a specific station node: ONLY if it's NOT a question node!
+          // Attached to a specific landmark station node: ONLY if it's NOT a question node!
           const targetNode = nodes.find((n) => n.id === targetNodeId);
           if (targetNode && !targetNode.questionId && targetNode.type !== 'question') {
             nodes = nodes.map((n) => {
@@ -256,19 +269,14 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
             });
           } else {
             // Target node is already a question or unavailable: place as dedicated treasure node
-            const hasTreasureWithPkg = nodes.some(
-              (n) => n.type === 'treasure' && n.packageId === pkg.id
-            );
-            if (!hasTreasureWithPkg) {
-              nodes.push({
-                id: `treasure-${stg.id}-${pkg.id}`,
-                type: 'treasure',
-                title: `אוצר: ${pkg.title}`,
-                packageId: pkg.id,
-                scoreReward: 50,
-                position: { x: 30, y: 72 },
-              });
-            }
+            nodes.unshift({
+              id: `treasure-${stg.id}-${pkg.id}`,
+              type: 'treasure',
+              title: `אוצר: ${pkg.title}`,
+              packageId: pkg.id,
+              scoreReward: 50,
+              position: { x: 24, y: 72 },
+            });
           }
         } else {
           // Dedicated themed treasure chest
@@ -276,62 +284,46 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
             ? { x: 50, y: 70 }
             : targetNodeId?.endsWith('-end')
             ? { x: 74, y: 74 }
-            : { x: 24, y: 74 };
+            : { x: 24, y: 72 };
 
-          const themedTitle =
-            stg.landscapeName?.includes('מדבר') || stg.title?.includes('מדבר')
-              ? `אוצר נווה המדבר: ${pkg.title}`
-              : stg.landscapeName?.includes('קניון') || stg.title?.includes('קניון')
-              ? `אוצר קניון הנהר: ${pkg.title}`
-              : stg.landscapeName?.includes('שלג') || stg.title?.includes('שלג') || stg.title?.includes('אלפים')
-              ? `אוצר אגם הטורקיז: ${pkg.title}`
-              : `אוצר שביל האבנים: ${pkg.title}`;
-
-          const trIdx = nodes.findIndex((n) => n.type === 'treasure' && n.packageId === pkg.id);
-          if (trIdx >= 0) {
-            nodes[trIdx] = {
-              ...nodes[trIdx],
-              title: themedTitle,
-              position: pos,
-            };
+          let themedTitle = 'אוצר שביל האבנים';
+          if (stg.landscapeName?.includes('מדבר') || stg.title?.includes('מדבר')) {
+            themedTitle = targetNodeId?.endsWith('-mid')
+              ? 'יהלום המים והמעיין הצלול'
+              : targetNodeId?.endsWith('-end')
+              ? 'אוצר הידע הדקדוקי של פירמידת השמש'
+              : 'אוצר נווה המדבר';
+          } else if (stg.landscapeName?.includes('שלג') || stg.title?.includes('שלג') || stg.title?.includes('אלפים')) {
+            themedTitle = targetNodeId?.endsWith('-mid')
+              ? 'יהלום המעבר הארקטי'
+              : targetNodeId?.endsWith('-end')
+              ? 'אוצר הידע הדקדוקי של פסגת השלג'
+              : 'אוצר אגם הטורקיז';
+          } else if (stg.landscapeName?.includes('קניון') || stg.title?.includes('קניון')) {
+            themedTitle = targetNodeId?.endsWith('-mid')
+              ? 'יהלום המפל והמערה'
+              : targetNodeId?.endsWith('-end')
+              ? 'אוצר הידע של שער האבן'
+              : 'אוצר קניון הנהר';
           } else {
-            nodes.push({
-              id: `treasure-${stg.id}-${pkg.id}`,
-              type: 'treasure',
-              title: themedTitle,
-              packageId: pkg.id,
-              scoreReward: 50,
-              position: pos,
-            });
+            themedTitle = targetNodeId?.endsWith('-mid')
+              ? 'יהלום המים והמפל הסודי'
+              : targetNodeId?.endsWith('-end')
+              ? 'אוצר הידע הדקדוקי של שער העץ'
+              : 'אוצר שביל האבנים';
           }
-        }
 
-        // Synchronize stage scenes
-        let scenes = stg.scenes;
-        if (scenes && scenes.length > 0) {
-          const stageTreasures = nodes.filter((n) => n.type === 'treasure');
-          scenes = scenes.map((sc, scIdx) => {
-            let scNodes = sc.nodes.map((n) => {
-              if (n.packageId === pkg.id && n.id !== targetNodeId) {
-                return { ...n, packageId: undefined };
-              }
-              if (n.id === targetNodeId && !n.questionId && n.type !== 'question') {
-                return { ...n, packageId: pkg.id };
-              }
-              return n;
-            });
-
-            // Ensure first scene contains the stage treasure if it's placed as a dedicated treasure
-            if (scIdx === 0 && targetNodeId?.startsWith('treasure-')) {
-              const trNode = nodes.find((n) => n.packageId === pkg.id && n.type === 'treasure');
-              if (trNode && !scNodes.some((n) => n.id === trNode.id)) {
-                scNodes = [trNode, ...scNodes];
-              }
-            }
-
-            return { ...sc, nodes: scNodes };
+          nodes.unshift({
+            id: targetNodeId || `treasure-${stg.id}-${pkg.id}`,
+            type: 'treasure',
+            title: `${themedTitle}: ${pkg.title}`,
+            packageId: pkg.id,
+            scoreReward: 50,
+            position: pos,
           });
         }
+
+        const scenes = generateStageScenesWithLandmarks(preset, nodes);
 
         return {
           ...stg,
@@ -355,7 +347,23 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const handleDeletePackage = (pkgId: string) => {
     if (confirm('האם למחוק חבילת ידע זו מהמשחק?')) {
       const updatedPackages = currentTrack.packages.filter((p) => p.id !== pkgId);
-      const updatedTrack: GameTrack = { ...currentTrack, packages: updatedPackages };
+      const updatedStages = currentTrack.stages.map((stg, sIdx) => {
+        const preset =
+          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+          LANDSCAPE_PRESETS[sIdx] ||
+          LANDSCAPE_PRESETS[0];
+        const nodes = stg.nodes
+          .filter((n) => !(n.type === 'treasure' && n.packageId === pkgId))
+          .map((n) => (n.packageId === pkgId ? { ...n, packageId: undefined } : n));
+        const packageIds = (stg.packageIds || []).filter((id) => id !== pkgId);
+        const scenes = generateStageScenesWithLandmarks(preset, nodes);
+        return { ...stg, packageIds, nodes, scenes };
+      });
+      const updatedTrack: GameTrack = {
+        ...currentTrack,
+        packages: updatedPackages,
+        stages: updatedStages,
+      };
       onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
     }
   };
@@ -370,7 +378,12 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     // If targetStageId and targetNodeId are supplied, update the stages
     let updatedStages = currentTrack.stages;
     if (targetStageId && targetNodeId) {
-      updatedStages = currentTrack.stages.map((stg) => {
+      updatedStages = currentTrack.stages.map((stg, sIdx) => {
+        const preset =
+          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+          LANDSCAPE_PRESETS[sIdx] ||
+          LANDSCAPE_PRESETS[0];
+
         // Remove q.id from other nodes
         let nodes = stg.nodes.map((node) => {
           if (node.questionId === q.id && (stg.id !== targetStageId || node.id !== targetNodeId)) {
@@ -404,41 +417,18 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
 
           // If a package was displaced from this station, ensure it has its own dedicated treasure node in the stage
           if (displacedPkgId && !nodes.some((n) => n.type === 'treasure' && n.packageId === displacedPkgId)) {
-            nodes.push({
+            nodes.unshift({
               id: `treasure-${stg.id}-${displacedPkgId}`,
               type: 'treasure',
               title: 'אוצר ידע דקדוקי',
               packageId: displacedPkgId,
               scoreReward: 50,
-              position: { x: 26, y: 72 },
+              position: { x: 24, y: 72 },
             });
           }
         }
 
-        // Keep stage scenes in sync so scene view matches the updated node
-        let scenes = stg.scenes;
-        if (scenes && scenes.length > 0) {
-          scenes = scenes.map((sc) => ({
-            ...sc,
-            nodes: sc.nodes.map((n) => {
-              if (n.id === targetNodeId) {
-                return {
-                  ...n,
-                  questionId: q.id,
-                  type: 'question' as const,
-                  packageId: undefined,
-                };
-              } else if (n.questionId === q.id && (stg.id !== targetStageId || n.id !== targetNodeId)) {
-                return {
-                  ...n,
-                  questionId: undefined,
-                  type: 'landmark' as const,
-                };
-              }
-              return n;
-            }),
-          }));
-        }
+        const scenes = generateStageScenesWithLandmarks(preset, nodes);
 
         return { ...stg, nodes, scenes };
       });
@@ -457,20 +447,25 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const handleDeleteQuestion = (qId: string) => {
     if (confirm('האם למחוק שאלה זו מהמשחק?')) {
       const updatedQuestions = currentTrack.questions.filter((item) => item.id !== qId);
-      const updatedStages = currentTrack.stages.map((stg) => ({
-        ...stg,
-        nodes: stg.nodes.map((n) =>
+      const updatedStages = currentTrack.stages.map((stg, sIdx) => {
+        const preset =
+          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+          LANDSCAPE_PRESETS[sIdx] ||
+          LANDSCAPE_PRESETS[0];
+        const nodes = stg.nodes.map((n) =>
           n.questionId === qId ? { ...n, questionId: undefined, type: 'landmark' as const } : n
-        ),
-      }));
+        );
+        const scenes = generateStageScenesWithLandmarks(preset, nodes);
+        return { ...stg, nodes, scenes };
+      });
       const updatedTrack: GameTrack = { ...currentTrack, questions: updatedQuestions, stages: updatedStages };
       onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
     }
   };
 
-  // Share Link Generation
+  // Share Link Generation - strictly fixed to https://arabicverbs-trip.vercel.app/ as requested
   const handleCopyShareLink = () => {
-    const shareUrl = `${window.location.origin}${window.location.pathname}?track=${currentTrack.id}`;
+    const shareUrl = 'https://arabicverbs-trip.vercel.app/';
     navigator.clipboard.writeText(shareUrl);
     setCopiedLink(true);
     setTimeout(() => setCopiedLink(false), 2000);
@@ -588,11 +583,22 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           <button
             onClick={handleCopyShareLink}
             className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-teal-300 border border-teal-500/30 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
-            title="העתק קישור ישיר למשחק הנוכחי עבור התלמיד"
+            title="העתק קישור ישיר למשחק התלמידים: https://arabicverbs-trip.vercel.app/"
           >
             {copiedLink ? <Check className="w-4 h-4 text-emerald-400" /> : <Share2 className="w-4 h-4" />}
             <span>{copiedLink ? 'הקישור הועתק!' : 'העתק קישור לתלמידים'}</span>
           </button>
+
+          {onOpenGDevelopSpec && (
+            <button
+              onClick={onOpenGDevelopSpec}
+              className="px-3 py-2 bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-200 border border-indigo-500/40 text-xs font-semibold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="פתח מפרט טכני, ארכיטקטורה וגיליונות אירועים מלאים ל-GDevelop 5"
+            >
+              <Cpu className="w-4 h-4 text-indigo-400" />
+              <span>מפרט GDevelop 5</span>
+            </button>
+          )}
 
           <button
             onClick={onReturnToGame}
@@ -917,8 +923,13 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
                         {pkg.binyanim.join(', ')}
                       </span>
                       <span className="bg-teal-500/10 border border-teal-500/20 text-teal-300 px-2 py-0.5 rounded">
-                        {pkg.tenses.join(', ')}
+                        {(pkg.tenses || []).map(cleanTenseLabel).join(', ')}
                       </span>
+                      {pkg.persons && pkg.persons.length > 0 && (
+                        <span className="bg-sky-500/10 border border-sky-500/20 text-sky-300 px-2 py-0.5 rounded">
+                          גוף: {pkg.persons.map(cleanPersonLabel).join(', ')}
+                        </span>
+                      )}
                     </div>
 
                     {pkg.imageUrl && (
@@ -1117,11 +1128,16 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
                             </td>
                             <td className="p-3 text-teal-300 tabular-nums">{rec.gemsCount} 💎</td>
                             <td className="p-3 font-semibold text-emerald-400 tabular-nums">{acc}%</td>
-                            <td className="p-3 text-slate-400">
-                              {new Date(rec.completedAt).toLocaleTimeString('he-IL', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
+                            <td className="p-3">
+                              <span className="font-bold text-teal-300 block">
+                                {formatDurationHebrew(rec.timeSpentSeconds || (rec.totalQuestions > 0 ? rec.totalQuestions * 90 : 120))}
+                              </span>
+                              <span className="text-[10px] text-slate-500 block">
+                                עודכן: {new Date(rec.completedAt).toLocaleTimeString('he-IL', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
                             </td>
                           </tr>
                         );

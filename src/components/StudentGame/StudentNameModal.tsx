@@ -49,8 +49,8 @@ export const StudentNameModal: React.FC<StudentNameModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in select-none overflow-y-auto">
-      <div className="bg-slate-900 border-2 border-purple-500/60 rounded-3xl max-w-lg w-full p-5 sm:p-6 text-slate-100 shadow-2xl relative overflow-hidden my-auto max-h-[94vh] flex flex-col justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in select-none">
+      <div className="bg-slate-900 border-2 border-purple-500/60 rounded-3xl max-w-lg w-full text-slate-100 shadow-2xl relative overflow-hidden my-auto max-h-[88vh] flex flex-col">
         {/* Glow ambient background in purple */}
         <div className="absolute -top-16 left-1/2 -translate-x-1/2 w-48 h-48 bg-purple-600/25 rounded-full blur-3xl pointer-events-none" />
 
@@ -64,14 +64,14 @@ export const StudentNameModal: React.FC<StudentNameModalProps> = ({
           </button>
         )}
 
-        <div className="overflow-y-auto pr-1">
+        <form id="student-start-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4 sm:p-6 pb-2 space-y-4">
           {/* Header */}
-          <div className="flex flex-col items-center text-center mb-4">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600/30 to-violet-500/30 border border-purple-400/40 flex items-center justify-center mb-2 shadow-inner">
-              <Footprints className="w-7 h-7 text-purple-300 animate-pulse" />
+          <div className="flex flex-col items-center text-center mb-3">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-purple-600/30 to-violet-500/30 border border-purple-400/40 flex items-center justify-center mb-2 shadow-inner">
+              <Footprints className="w-6 h-6 sm:w-7 sm:h-7 text-purple-300 animate-pulse" />
             </div>
 
-            <span className="text-xs font-bold text-purple-300 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+            <span className="text-[11px] sm:text-xs font-bold text-purple-300 uppercase tracking-wider mb-1 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5 text-purple-400" />
               <span>אסתכשאף | הדרך שלך אל הפועל</span>
             </span>
@@ -85,9 +85,8 @@ export const StudentNameModal: React.FC<StudentNameModalProps> = ({
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Student Name Input */}
-            <div>
+          {/* Student Name Input */}
+          <div>
               <label className="block text-xs font-bold text-slate-200 mb-1.5 text-right">
                 איך לקרוא לך במסע? <span className="text-purple-400">*</span>
               </label>
@@ -194,14 +193,18 @@ export const StudentNameModal: React.FC<StudentNameModalProps> = ({
               </span>
             </label>
 
-            <button
-              type="submit"
-              className="w-full py-3 mt-2 bg-gradient-to-r from-purple-700 via-purple-600 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white font-extrabold text-sm sm:text-base rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-purple-600/35 transition-all active:scale-98 cursor-pointer"
-            >
-              <UserCheck className="w-5 h-5" />
-              <span>יוצאים לדרך 🚀</span>
-            </button>
-          </form>
+        </form>
+
+        {/* Pinned Bottom Action Footer: Permanently visible without scrolling */}
+        <div className="p-3 sm:p-4 bg-slate-900/95 border-t border-slate-800 shrink-0 sticky bottom-0 z-20">
+          <button
+            type="submit"
+            form="student-start-form"
+            className="w-full py-3 bg-gradient-to-r from-purple-700 via-purple-600 to-indigo-600 hover:from-purple-600 hover:to-indigo-500 text-white font-extrabold text-sm sm:text-base rounded-2xl flex items-center justify-center gap-2 shadow-xl shadow-purple-600/35 transition-all active:scale-98 cursor-pointer"
+          >
+            <UserCheck className="w-5 h-5" />
+            <span>יוצאים לדרך 🚀</span>
+          </button>
         </div>
       </div>
     </div>

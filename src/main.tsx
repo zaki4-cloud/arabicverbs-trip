@@ -5,26 +5,33 @@ import './index.css';
 // Guard against unhandled background/foreground transitions and network drops
 if (typeof window !== 'undefined') {
   window.addEventListener('unhandledrejection', (event) => {
-    // Prevent unhandled promise errors (e.g. aborted Firestore webchannels, audio resume) from crashing the UI
-    const reason = event.reason?.message || String(event.reason || '');
-    if (
-      reason.includes('aborted') ||
-      reason.includes('offline') ||
-      reason.includes('unavailable') ||
-      reason.includes('AudioContext') ||
-      reason.includes('play()') ||
-      reason.includes('quota') ||
-      reason.includes('Firestore')
-    ) {
-      console.warn('Recovered gracefully from non-fatal background/network event:', reason);
-      event.preventDefault();
-    }
+    // Intercept unhandled promise rejections (Firestore streaming WebChannels, IndexedDB locks, network drops on switching apps) so they never crash the UI
+    console.warn('Gracefully recovered from unhandled rejection on background/app switch:', event.reason);
+    event.preventDefault();
   });
 
   window.addEventListener('error', (event) => {
     const msg = event.message || '';
-    if (msg.includes('ResizeObserver') || msg.includes('Script error')) {
+    if (
+      msg.includes('ResizeObserver') ||
+      msg.includes('Script error') ||
+      msg.includes('speechSynthesis') ||
+      msg.includes('AudioContext')
+    ) {
       event.preventDefault();
+    }
+  });
+
+  // Handle tab visibility change: gracefully stop audio speech when hidden to prevent browser audio worker crashes
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      try {
+        if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+        }
+      } catch {
+        // Ignore
+      }
     }
   });
 }

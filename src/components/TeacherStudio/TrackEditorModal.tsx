@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { GameTrack, DifficultyLevel, GameStage } from '../../types/game';
-import { Layers, Save, X, Compass, Plus, Trash2, Mountain, Image as ImageIcon } from 'lucide-react';
+import { Layers, Save, X, Compass, Plus, Trash2, Mountain, Image as ImageIcon, Award, CheckCircle2 } from 'lucide-react';
 import { LANDSCAPE_PRESETS, LandscapePreset, generateStageNodesWithLandmarks, generateStageScenesWithLandmarks } from '../../data/landmarkPresets';
 
 interface TrackEditorModalProps {
@@ -18,11 +18,46 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(track.difficulty);
   const [description, setDescription] = useState(track.description);
   const [shareCode, setShareCode] = useState(track.shareCode || '');
+  const [achievements, setAchievements] = useState<string[]>(() => {
+    if (track.achievements && track.achievements.length > 0) {
+      return [...track.achievements];
+    }
+    if (track.id.includes('basic') || track.title.includes('בניין 1') || track.title.includes('עבר')) {
+      return [
+        'שליטה מלאה בזיהוי גופים וסיומות בפועל השלם בעבר',
+        'הבחנה מדויקת במשמעות בניין 1 הבסיסי ותרגום שוטף',
+        'הצלחה בהתאמת צמדים מורפולוגיים ומענה נכון על שאלות המסע',
+      ];
+    }
+    return [
+      'שליטה מלאה בזיהוי גופים וזמנים בבניינים 1, 2 ו-5',
+      'הבחנה בין פעולת גרימה לפעולה חוזרת ורפלקסיבית',
+      'הצלחה בהתאמת צמדים מורפולוגיים ותרגום שוטף',
+    ];
+  });
   const [stages, setStages] = useState<GameStage[]>(
     track.stages.map((stg) => ({
       ...stg,
     }))
   );
+
+  const handleUpdateAchievement = (idx: number, val: string) => {
+    const updated = [...achievements];
+    updated[idx] = val;
+    setAchievements(updated);
+  };
+
+  const handleAddAchievement = () => {
+    if (achievements.length < 6) {
+      setAchievements([...achievements, '']);
+    }
+  };
+
+  const handleRemoveAchievement = (idx: number) => {
+    if (achievements.length > 1) {
+      setAchievements(achievements.filter((_, i) => i !== idx));
+    }
+  };
 
   const handleStageChange = (idx: number, field: keyof GameStage, val: any) => {
     setStages((prev) =>
@@ -110,6 +145,10 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
 
+    const validAchievements = achievements
+      .map((a) => a.trim())
+      .filter((a) => a.length > 0);
+
     const updated: GameTrack = {
       ...track,
       title: title.trim(),
@@ -117,6 +156,7 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
       description: description.trim(),
       shareCode: shareCode.trim().toUpperCase() || track.shareCode,
       stages,
+      achievements: validAchievements.length > 0 ? validAchievements : undefined,
     };
 
     onSave(updated);
@@ -201,6 +241,55 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
               placeholder="תיאור הנושאים הדקדוקיים הנלמדים ברמה זו..."
               className="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-purple-400 leading-relaxed"
             />
+          </div>
+
+          {/* Level Learning Achievements (Customizable by Teacher) */}
+          <div className="bg-slate-950/70 p-3.5 rounded-2xl border border-purple-500/40 space-y-2.5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-purple-300 flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-purple-400" />
+                <span>הישגי הרמה / יעדי הצלחה הנעולים במסע</span>
+              </label>
+              {achievements.length < 5 && (
+                <button
+                  type="button"
+                  onClick={handleAddAchievement}
+                  className="px-2.5 py-1 bg-purple-600/30 hover:bg-purple-600/50 text-purple-200 border border-purple-500/40 text-[11px] font-bold rounded-xl flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>הוסף יעד/הישג</span>
+                </button>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              הישגים אלו מוצגים לתלמיד בחלונית סיום המסלול. באפשרותכם להתאים אותם לחומר הנלמד ברמה זו (למשל: סיומות עבר, הטיית בניין 1, זיהוי שורשים וכד'):
+            </p>
+            <div className="space-y-2">
+              {achievements.map((ach, aIdx) => (
+                <div key={aIdx} className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-lg bg-purple-950 border border-purple-500/50 flex items-center justify-center text-purple-300 shrink-0 text-[10px] font-bold">
+                    {aIdx + 1}
+                  </div>
+                  <input
+                    type="text"
+                    value={ach}
+                    onChange={(e) => handleUpdateAchievement(aIdx, e.target.value)}
+                    placeholder={`הישג למידה #${aIdx + 1} (למשל: שליטה מלאה בסיומות פועל עבר)...`}
+                    className="flex-1 bg-slate-900 border border-slate-700 focus:border-purple-400 rounded-xl px-3 py-1.5 text-xs text-white transition-colors"
+                  />
+                  {achievements.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAchievement(aIdx)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-950/30 transition-colors cursor-pointer"
+                      title="הסר הישג זה"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Stages Customization & Adding Stages 3 & 4 */}

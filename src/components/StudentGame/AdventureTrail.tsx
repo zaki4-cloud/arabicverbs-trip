@@ -50,24 +50,15 @@ export const AdventureTrail: React.FC<AdventureTrailProps> = ({
   hasPrevStage,
   onCompleteTrack,
 }) => {
-  // Always guarantee distinct, breathtaking multi-scenes for each stage
+  // Always guarantee distinct, breathtaking multi-scenes for each stage with LIVE nodes
   const scenes: StageScene[] = useMemo(() => {
-    // If the stage already has multiple scenes with distinct background artworks, use them
-    if (
-      currentStage.scenes &&
-      currentStage.scenes.length > 1 &&
-      !currentStage.scenes.every((s) => s.backgroundImageUrl === currentStage.scenes![0].backgroundImageUrl)
-    ) {
-      return currentStage.scenes;
-    }
-
-    // Otherwise, generate the scenes directly from presets matching this stage
     const preset =
       LANDSCAPE_PRESETS.find((p) => p.name === currentStage.landscapeName || p.id === currentStage.id) ||
-      LANDSCAPE_PRESETS[Math.min(Math.max(0, currentStage.stageNumber - 1), LANDSCAPE_PRESETS.length - 1)];
+      LANDSCAPE_PRESETS[Math.min(Math.max(0, currentStage.stageNumber - 1), LANDSCAPE_PRESETS.length - 1)] ||
+      LANDSCAPE_PRESETS[0];
 
     return generateStageScenesWithLandmarks(preset, currentStage.nodes);
-  }, [currentStage]);
+  }, [currentStage.nodes, currentStage.landscapeName, currentStage.id, currentStage.stageNumber]);
 
   const [currentSceneIndex, setCurrentSceneIndex] = useState<number>(0);
   const [playerPos, setPlayerPos] = useState<{ x: number; y: number }>({ x: 50, y: 84 });
@@ -406,7 +397,9 @@ export const AdventureTrail: React.FC<AdventureTrailProps> = ({
           {!hasNextScene && isStageReady && (
             <div className="absolute top-12 left-1/2 -translate-x-1/2 z-25 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white px-4 py-1.5 rounded-full border border-emerald-300 shadow-2xl flex items-center gap-2 animate-bounce pointer-events-none">
               <Flag className="w-4 h-4 text-yellow-300" />
-              <span className="text-xs font-black">השלב הושלם בהצלחה! לחצו 'ממשיכים במסע' למעלה</span>
+              <span className="text-xs font-black">
+                {hasNextStage ? 'השלב הושלם בהצלחה! לחצו "לשלב הבא" למטה' : 'המסלול הושלם בהצלחה! לחצו "סיום המסלול" למטה'}
+              </span>
             </div>
           )}
 
@@ -594,7 +587,7 @@ export const AdventureTrail: React.FC<AdventureTrailProps> = ({
             >
               <img
                 src={resolveImageUrl(avatarImgUrl)}
-                alt="דמות הרפתקן"
+                alt="סנאי הרפתקן"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"
               />

@@ -96,8 +96,9 @@ export const MatchingPairsStation: React.FC<MatchingPairsStationProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in select-none">
-      <div className="bg-slate-900 border border-slate-700/90 rounded-2xl p-5 sm:p-6 shadow-2xl max-w-xl w-full max-h-[92vh] flex flex-col justify-between overflow-y-auto">
-        <div>
+      <div className="bg-slate-900 border border-slate-700/90 rounded-2xl shadow-2xl max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden">
+        {/* Scrollable Content Body */}
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {/* Header */}
           <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-800 pb-2.5 mb-3">
             <span className="font-semibold text-teal-400">התאמת צמדים (Matching Pairs)</span>
@@ -234,13 +235,14 @@ export const MatchingPairsStation: React.FC<MatchingPairsStationProps> = ({
             </div>
           )}
         </div>
+        {/* End of Scrollable Body */}
 
-        {/* Continue Button: "ממשיכים במסע" */}
+        {/* Pinned Bottom Action Footer: "ממשיכים במסע" - Immediately accessible without scrolling */}
         {isCompleted && (
-          <div className="flex justify-end pt-2 border-t border-slate-800">
+          <div className="p-3 sm:p-4 bg-slate-900/95 border-t border-slate-800 shrink-0 sticky bottom-0 z-20 flex justify-end">
             <button
               onClick={onContinue}
-              className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 cursor-pointer transition-all active:scale-98"
+              className="w-full sm:w-auto px-7 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black text-sm rounded-xl flex items-center justify-center gap-2 shadow-xl shadow-purple-600/35 cursor-pointer transition-all active:scale-98"
             >
               <span>ממשיכים במסע</span>
               <ArrowLeft className="w-4 h-4" />

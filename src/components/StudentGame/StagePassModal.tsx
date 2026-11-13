@@ -36,8 +36,8 @@ export const StagePassModal: React.FC<StagePassModalProps> = ({
   }, [onProceed]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in select-none">
-      <div className="bg-slate-900 border-2 border-purple-500/60 rounded-3xl max-w-md w-full p-6 text-center shadow-2xl text-slate-100 relative overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-fade-in select-none">
+      <div className="bg-slate-900 border-2 border-purple-500/60 rounded-3xl max-w-md w-full p-5 sm:p-6 text-center shadow-2xl text-slate-100 relative overflow-hidden max-h-[88vh] flex flex-col justify-between">
         {/* Glow backdrop in purple */}
         <div className="absolute -top-20 left-1/2 -translate-x-1/2 w-48 h-48 bg-purple-600/25 rounded-full blur-3xl pointer-events-none" />
 

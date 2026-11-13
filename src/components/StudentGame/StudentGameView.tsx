@@ -45,6 +45,21 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
   const gemsKey = `arabic_adv_gems_${activeTrack.id}`;
   const totalQKey = `arabic_adv_total_q_${activeTrack.id}`;
   const correctQKey = `arabic_adv_correct_q_${activeTrack.id}`;
+  const timeKey = `arabic_adv_time_spent_${activeTrack.id}`;
+
+  // Cumulative active activity time in seconds
+  const [accumulatedSeconds, setAccumulatedSeconds] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(timeKey);
+      if (saved !== null) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 0) return parsed;
+      }
+    } catch {
+      // Ignore
+    }
+    return 0;
+  });
 
   // Persistent student game state
   const [currentStageIndex, setCurrentStageIndex] = useState<number>(() => {
@@ -129,6 +144,23 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
 
   const [isMuted, setIsMuted] = useState<boolean>(false);
 
+  // Active game time timer (increments cumulative seconds during play)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAccumulatedSeconds((prev) => {
+        const next = prev + 1;
+        try {
+          localStorage.setItem(timeKey, next.toString());
+        } catch {
+          // Ignore
+        }
+        return next;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeKey]);
+
   // Sync state changes to localStorage
   useEffect(() => {
     try {
@@ -174,6 +206,9 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
 
       const savedCor = localStorage.getItem(corQKey);
       setCorrectAnswersCount(savedCor !== null ? parseInt(savedCor, 10) || 0 : 0);
+
+      const savedTime = localStorage.getItem(`arabic_adv_time_spent_${activeTrack.id}`);
+      setAccumulatedSeconds(savedTime !== null ? parseInt(savedTime, 10) || 0 : 0);
     } catch {
       // Ignore
     }
@@ -244,6 +279,8 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
         localStorage.removeItem(`arabic_adv_gems_${targetTrackId}`);
         localStorage.removeItem(`arabic_adv_total_q_${targetTrackId}`);
         localStorage.removeItem(`arabic_adv_correct_q_${targetTrackId}`);
+        localStorage.removeItem(`arabic_adv_time_spent_${targetTrackId}`);
+        setAccumulatedSeconds(0);
       } catch {
         // Storage unavailable
       }
@@ -252,24 +289,33 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
 
   const currentStageRaw = activeTrack.stages[currentStageIndex] || activeTrack.stages[0];
 
-  // Dynamically place up to 3 treasure nodes based on packages assigned to this stage
+  // Dynamically ensure packages assigned to this stage are placed cleanly
   const currentStage = React.useMemo(() => {
     if (!currentStageRaw) return activeTrack.stages[0];
-    
-    // Find packages for this stage
+
+    // Find packages assigned specifically to this stage
     const stagePkgIds = currentStageRaw.packageIds || [];
-    const relevantPackages = stagePkgIds.length > 0
-      ? activeTrack.packages.filter((p) => stagePkgIds.includes(p.id))
-      : activeTrack.packages.slice(0, 1);
+    const relevantPackages = activeTrack.packages.filter((p) => stagePkgIds.includes(p.id));
 
-    const nodes = [...currentStageRaw.nodes];
+    // Filter out any treasure nodes whose packages do not belong to this stage or track
+    let nodes = currentStageRaw.nodes.filter((n) => {
+      if (n.type === 'treasure') {
+        return Boolean(n.packageId && stagePkgIds.includes(n.packageId) && activeTrack.packages.some((p) => p.id === n.packageId));
+      }
+      return true;
+    }).map((n) => {
+      if (n.packageId && (!stagePkgIds.includes(n.packageId) || !activeTrack.packages.some((p) => p.id === n.packageId))) {
+        return { ...n, packageId: undefined };
+      }
+      return n;
+    });
 
-    // If there are packages without a corresponding node, add them dynamically (up to 3)
-    relevantPackages.slice(0, 3).forEach((pkg, idx) => {
+    // If there are packages assigned to this stage that don't have a node yet, add them dynamically
+    relevantPackages.forEach((pkg, idx) => {
       const alreadyHas = nodes.some((t) => t.packageId === pkg.id);
       if (!alreadyHas) {
-        const xPositions = [18, 58, 102];
-        const yPositions = [72, 66, 74];
+        const xPositions = [24, 50, 74];
+        const yPositions = [72, 70, 74];
         nodes.unshift({
           id: `dyn-treasure-${currentStageRaw.id}-${pkg.id}`,
           type: 'treasure',
@@ -287,7 +333,8 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
     };
   }, [currentStageRaw, activeTrack.packages]);
 
-  const avatarImgUrl = resolveImageUrl('/assets/images/adventurer_explorer_character_1793466160555.jpg');
+  // Participant character: cute brave squirrel adventurer
+  const avatarImgUrl = resolveImageUrl('/assets/images/squirrel_explorer_avatar_1794403048158.jpg');
 
   const saveStudentProgress = () => {
     try {
@@ -306,6 +353,7 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
         correctAnswers: correctAnswersCount,
         totalQuestions: totalQuestionsAnswered,
         completedAt: Date.now(),
+        timeSpentSeconds: Math.max(10, accumulatedSeconds),
       };
 
       const updated = [newRecord, ...records.slice(0, 49)];
@@ -320,7 +368,16 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
     }
   };
 
-  // Node Click Handlers
+  // Periodic auto-sync of cumulative active time to Firestore for live teacher monitoring
+  useEffect(() => {
+    const syncTimer = setInterval(() => {
+      if (accumulatedSeconds > 5) {
+        saveStudentProgress();
+      }
+    }, 30000);
+    return () => clearInterval(syncTimer);
+  }, [accumulatedSeconds, currentStudentName, currentStageIndex, score, gemsCount, correctAnswersCount, totalQuestionsAnswered, activeTrack.id]);
+
   const handleOpenNode = (node: StageNode) => {
     // 1. Question stations ALWAYS take absolute priority when clicked or approached
     if (node.type === 'question' || node.questionId) {
@@ -624,6 +681,7 @@ export const StudentGameView: React.FC<StudentGameViewProps> = ({
           gemsCount={gemsCount}
           totalQuestions={totalQuestionsAnswered}
           correctAnswersCount={correctAnswersCount}
+          achievements={activeTrack.achievements}
           onRestart={handleRestart}
           onExit={handleTriggerExit}
           onExploreTrail={() => setShowCelebration(false)}
