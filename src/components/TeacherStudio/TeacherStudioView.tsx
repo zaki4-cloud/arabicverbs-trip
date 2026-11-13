@@ -72,7 +72,16 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [activeTab, setActiveTab] = useState<'tracks' | 'packages' | 'questions' | 'analytics' | 'export_import'>('tracks');
   const [copiedLink, setCopiedLink] = useState(false);
   const [cloudSyncLoading, setCloudSyncLoading] = useState(false);
-  const [cloudMessage, setCloudMessage] = useState<string | null>(null);
+  const [cloudMessage, setCloudMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const showNotice = (text: string, isError = false) => {
+    setCloudMessage({ text, isError });
+    setTimeout(() => setCloudMessage(null), 5000);
+  };
 
   // Auth state for teacher
   const [teacherUser, setTeacherUser] = useState<User | null>(() => auth.currentUser);
@@ -105,12 +114,11 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     setCloudMessage(null);
     try {
       await saveAllGameTracksToFirestore(tracks);
-      setCloudMessage('כל המשחקים והשלבים נשמרו בענן בהצלחה! ☁️');
-      setTimeout(() => setCloudMessage(null), 4000);
+      showNotice('כל המשחקים והשלבים נשמרו בענן בהצלחה! ☁️');
     } catch (err) {
       console.error('Manual cloud sync failed:', err);
-      setCloudMessage('שגיאה בסנכרון לענן.');
-      setTimeout(() => setCloudMessage(null), 4000);
+      const reason = err instanceof Error ? err.message : '';
+      showNotice(`שגיאה בסנכרון לענן Firebase${reason ? ` (${reason})` : ''}.`, true);
     } finally {
       setCloudSyncLoading(false);
     }
@@ -196,17 +204,20 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
 
   const handleDeleteTrack = (trackId: string) => {
     if (tracks.length <= 1) {
-      alert('חייב להישאר לפחות משחק אחד פעיל במערכת.');
+      showNotice('חייב להישאר לפחות משחק אחד פעיל במערכת.', true);
       return;
     }
-    if (confirm('האם אתם בטוחים שברצונכם למחוק משחק זה?')) {
-      const updated = tracks.filter((t) => t.id !== trackId);
-      onUpdateTracks(updated);
-      onSelectTrack(updated[0].id);
-      deleteGameTrackFromFirestore(trackId).catch((err) => {
-        console.error('Failed to delete track from Firestore:', err);
-      });
-    }
+    setConfirmAction({
+      message: 'האם אתם בטוחים שברצונכם למחוק משחק זה?',
+      onConfirm: () => {
+        const updated = tracks.filter((t) => t.id !== trackId);
+        onUpdateTracks(updated);
+        onSelectTrack(updated[0].id);
+        deleteGameTrackFromFirestore(trackId).catch((err) => {
+          console.error('Failed to delete track from Firestore:', err);
+        });
+      },
+    });
   };
 
   // Packages within active track with stage and station placement
@@ -345,27 +356,30 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   };
 
   const handleDeletePackage = (pkgId: string) => {
-    if (confirm('האם למחוק חבילת ידע זו מהמשחק?')) {
-      const updatedPackages = currentTrack.packages.filter((p) => p.id !== pkgId);
-      const updatedStages = currentTrack.stages.map((stg, sIdx) => {
-        const preset =
-          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
-          LANDSCAPE_PRESETS[sIdx] ||
-          LANDSCAPE_PRESETS[0];
-        const nodes = stg.nodes
-          .filter((n) => !(n.type === 'treasure' && n.packageId === pkgId))
-          .map((n) => (n.packageId === pkgId ? { ...n, packageId: undefined } : n));
-        const packageIds = (stg.packageIds || []).filter((id) => id !== pkgId);
-        const scenes = generateStageScenesWithLandmarks(preset, nodes);
-        return { ...stg, packageIds, nodes, scenes };
-      });
-      const updatedTrack: GameTrack = {
-        ...currentTrack,
-        packages: updatedPackages,
-        stages: updatedStages,
-      };
-      onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
-    }
+    setConfirmAction({
+      message: 'האם למחוק חבילת ידע זו מהמשחק?',
+      onConfirm: () => {
+        const updatedPackages = currentTrack.packages.filter((p) => p.id !== pkgId);
+        const updatedStages = currentTrack.stages.map((stg, sIdx) => {
+          const preset =
+            LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+            LANDSCAPE_PRESETS[sIdx] ||
+            LANDSCAPE_PRESETS[0];
+          const nodes = stg.nodes
+            .filter((n) => !(n.type === 'treasure' && n.packageId === pkgId))
+            .map((n) => (n.packageId === pkgId ? { ...n, packageId: undefined } : n));
+          const packageIds = (stg.packageIds || []).filter((id) => id !== pkgId);
+          const scenes = generateStageScenesWithLandmarks(preset, nodes);
+          return { ...stg, packageIds, nodes, scenes };
+        });
+        const updatedTrack: GameTrack = {
+          ...currentTrack,
+          packages: updatedPackages,
+          stages: updatedStages,
+        };
+        onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
+      },
+    });
   };
 
   // Questions within active track with stage and station placement
@@ -445,22 +459,25 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   };
 
   const handleDeleteQuestion = (qId: string) => {
-    if (confirm('האם למחוק שאלה זו מהמשחק?')) {
-      const updatedQuestions = currentTrack.questions.filter((item) => item.id !== qId);
-      const updatedStages = currentTrack.stages.map((stg, sIdx) => {
-        const preset =
-          LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
-          LANDSCAPE_PRESETS[sIdx] ||
-          LANDSCAPE_PRESETS[0];
-        const nodes = stg.nodes.map((n) =>
-          n.questionId === qId ? { ...n, questionId: undefined, type: 'landmark' as const } : n
-        );
-        const scenes = generateStageScenesWithLandmarks(preset, nodes);
-        return { ...stg, nodes, scenes };
-      });
-      const updatedTrack: GameTrack = { ...currentTrack, questions: updatedQuestions, stages: updatedStages };
-      onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
-    }
+    setConfirmAction({
+      message: 'האם למחוק שאלה זו מהמשחק?',
+      onConfirm: () => {
+        const updatedQuestions = currentTrack.questions.filter((item) => item.id !== qId);
+        const updatedStages = currentTrack.stages.map((stg, sIdx) => {
+          const preset =
+            LANDSCAPE_PRESETS.find((p) => p.name === stg.landscapeName || p.id === stg.id) ||
+            LANDSCAPE_PRESETS[sIdx] ||
+            LANDSCAPE_PRESETS[0];
+          const nodes = stg.nodes.map((n) =>
+            n.questionId === qId ? { ...n, questionId: undefined, type: 'landmark' as const } : n
+          );
+          const scenes = generateStageScenesWithLandmarks(preset, nodes);
+          return { ...stg, nodes, scenes };
+        });
+        const updatedTrack: GameTrack = { ...currentTrack, questions: updatedQuestions, stages: updatedStages };
+        onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
+      },
+    });
   };
 
   // Share Link Generation - strictly fixed to https://arabicverbs-trip.vercel.app/ as requested
@@ -501,22 +518,26 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           if (parsed.tracks.length > 0) {
             onSelectTrack(parsed.tracks[0].id);
           }
-          alert('מאגר המשחקים יובא בהצלחה לענן ולמכשיר!');
+          showNotice('מאגר המשחקים יובא בהצלחה לענן ולמכשיר! ☁️');
         } else {
-          alert('מבנה קובץ ה-JSON אינו תקין.');
+          showNotice('מבנה קובץ ה-JSON אינו תקין.', true);
         }
       } catch {
-        alert('שגיאה בקריאת הקובץ.');
+        showNotice('שגיאה בקריאת הקובץ.', true);
       }
     };
     reader.readAsText(file);
   };
 
   const handleClearStudentRecords = () => {
-    if (confirm('האם לאפס את נתוני המעקב של כל התלמידים?')) {
-      localStorage.removeItem('arabic_adventure_student_records');
-      setStudentRecords([]);
-    }
+    setConfirmAction({
+      message: 'האם לאפס את נתוני המעקב של כל התלמידים?',
+      onConfirm: () => {
+        localStorage.removeItem('arabic_adventure_student_records');
+        setStudentRecords([]);
+        showNotice('נתוני המעקב המקומיים אופסו.');
+      },
+    });
   };
 
   return (
@@ -625,9 +646,15 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
       <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 flex-1 flex flex-col">
         {/* Cloud Notification Message */}
         {cloudMessage && (
-          <div className="mb-4 p-3 bg-emerald-950/60 border border-emerald-500/40 text-emerald-200 rounded-xl text-xs flex items-center gap-2 animate-fade-in shadow-lg">
-            <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>{cloudMessage}</span>
+          <div
+            className={`mb-4 p-3 border rounded-xl text-xs flex items-center gap-2 animate-fade-in shadow-lg ${
+              cloudMessage.isError
+                ? 'bg-rose-950/70 border-rose-500/50 text-rose-200'
+                : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+            }`}
+          >
+            <Cloud className={`w-4 h-4 shrink-0 ${cloudMessage.isError ? 'text-rose-400' : 'text-emerald-400'}`} />
+            <span>{cloudMessage.text}</span>
           </div>
         )}
         {/* Navigation Tabs */}
@@ -1344,6 +1371,34 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
             setEditingTrackForModal(null);
           }}
         />
+      )}
+
+      {/* Safe In-App Confirmation Dialog (no blocked window.confirm) */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-fade-in">
+          <div className="bg-slate-900 border border-rose-500/40 rounded-2xl max-w-sm w-full p-5 text-slate-100 shadow-2xl text-center space-y-4">
+            <p className="text-sm font-bold text-white leading-relaxed">{confirmAction.message}</p>
+            <div className="flex flex-row-reverse gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  confirmAction.onConfirm();
+                  setConfirmAction(null);
+                }}
+                className="flex-1 py-2 px-4 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl cursor-pointer"
+              >
+                אישור
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmAction(null)}
+                className="flex-1 py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-xl cursor-pointer"
+              >
+                ביטול
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

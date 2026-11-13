@@ -63,7 +63,10 @@ export default function App() {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return migrateTrackMapImages(parsed);
+          const migrated = migrateTrackMapImages(parsed);
+          if (migrated.length > 0) {
+            return migrated;
+          }
         }
       }
     } catch {
@@ -92,32 +95,34 @@ export default function App() {
       (firestoreTracks) => {
         if (firestoreTracks && firestoreTracks.length > 0) {
           const upgraded = migrateTrackMapImages(firestoreTracks);
-          setTracks((prev) => {
-            if (JSON.stringify(prev) === JSON.stringify(upgraded)) {
-              return prev;
-            }
-            return upgraded;
-          });
-          setCloudSyncStatus('synced');
-          
-          // Auto-sync missing scenes to Firestore at most ONCE per session to prevent repeated write loops
-          if (!hasAutoSyncedRef.current) {
-            const needsFirestoreSync = firestoreTracks.some(
-              (t) => !t.stages || t.stages.some((s) => !s.scenes || s.scenes.length === 0)
-            );
-            if (needsFirestoreSync) {
-              hasAutoSyncedRef.current = true;
-              saveAllGameTracksToFirestore(upgraded).catch((err) =>
-                console.warn('Auto-syncing upgraded scenes to Firestore:', err)
-              );
-            }
-          }
+          if (upgraded.length > 0) {
+            setTracks((prev) => {
+              if (JSON.stringify(prev) === JSON.stringify(upgraded)) {
+                return prev;
+              }
+              return upgraded;
+            });
+            setCloudSyncStatus('synced');
 
-          // Update localStorage cache
-          try {
-            localStorage.setItem('arabic_adventure_tracks', JSON.stringify(upgraded));
-          } catch {
-            // Ignore
+            // Auto-sync missing scenes to Firestore at most ONCE per session to prevent repeated write loops
+            if (!hasAutoSyncedRef.current) {
+              const needsFirestoreSync = firestoreTracks.some(
+                (t) => !t.stages || t.stages.some((s) => !s.scenes || s.scenes.length === 0)
+              );
+              if (needsFirestoreSync) {
+                hasAutoSyncedRef.current = true;
+                saveAllGameTracksToFirestore(upgraded).catch((err) =>
+                  console.warn('Auto-syncing upgraded scenes to Firestore:', err)
+                );
+              }
+            }
+
+            // Update localStorage cache
+            try {
+              localStorage.setItem('arabic_adventure_tracks', JSON.stringify(upgraded));
+            } catch {
+              // Ignore
+            }
           }
         }
       },
@@ -150,7 +155,7 @@ export default function App() {
     }
   };
 
-  const activeTrack = tracks.find((t) => t.id === activeTrackId) || tracks[0];
+  const activeTrack = tracks.find((t) => t.id === activeTrackId) || tracks[0] || INITIAL_GAME_TRACKS[0];
 
   const handleOpenTeacherStudio = () => {
     if (isTeacherUnlocked) {

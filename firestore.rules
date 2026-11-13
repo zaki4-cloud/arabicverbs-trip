@@ -10,10 +10,6 @@ service cloud.firestore {
       return request.resource.data;
     }
 
-    function existing() {
-      return resource.data;
-    }
-
     function isSignedIn() {
       return request.auth != null;
     }
@@ -26,14 +22,14 @@ service cloud.firestore {
     }
 
     function isValidGameTrack(data) {
-      return data.id is string && data.id.size() <= 128
-        && data.title is string && data.title.size() <= 200
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 300
         && data.difficulty is string && data.difficulty.size() <= 60
         && data.stages is list && data.stages.size() <= 50;
     }
 
     function isValidStudentRecord(data) {
-      return data.id is string && data.id.size() <= 128
+      return data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.studentName is string && data.studentName.size() <= 150
         && data.trackId is string && data.trackId.size() <= 128
         && data.score is number && data.score >= 0;
@@ -44,14 +40,26 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Connection health check document
+    match /test/connection {
+      allow get: if true;
+    }
+
     // Game tracks: educational levels created and customized by teachers
+    // Split get and list so collection-level onSnapshot list queries succeed
     match /game_tracks/{trackId} {
-      allow read, write: if isValidId(trackId);
+      allow list: if true;
+      allow get: if isValidId(trackId);
+      allow create, update: if isValidId(trackId) && isValidGameTrack(incoming());
+      allow delete: if isValidId(trackId);
     }
 
     // Student progress telemetry
     match /student_records/{recordId} {
-      allow read, write: if isValidId(recordId);
+      allow list: if true;
+      allow get: if isValidId(recordId);
+      allow create, update: if isValidId(recordId) && isValidStudentRecord(incoming());
+      allow delete: if isValidId(recordId);
     }
 
     // Admin collection

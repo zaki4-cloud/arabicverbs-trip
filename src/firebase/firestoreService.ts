@@ -66,20 +66,59 @@ const TRACKS_COLLECTION = 'game_tracks';
 const STUDENT_RECORDS_COLLECTION = 'student_records';
 
 /**
+ * Recursively remove undefined properties so Firestore setDoc never throws on unsupported undefined values.
+ */
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item) => item !== undefined)
+      .map((item) => stripUndefined(item)) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const cleanObj: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      if (val !== undefined) {
+        cleanObj[key] = stripUndefined(val);
+      }
+    }
+    return cleanObj as T;
+  }
+  return value;
+}
+
+function sanitizeFirestoreId(rawId: string, prefix: string): string {
+  const cleaned = String(rawId || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .slice(0, 128);
+  return cleaned.length > 0 ? cleaned : `${prefix}-${Date.now()}`;
+}
+
+/**
  * Save or update a single game track to Firestore
  */
 export async function saveGameTrackToFirestore(track: GameTrack): Promise<void> {
-  const path = `${TRACKS_COLLECTION}/${track.id}`;
+  const safeId = sanitizeFirestoreId(track.id, 'track');
+  const path = `${TRACKS_COLLECTION}/${safeId}`;
   try {
-    const trackDocRef = doc(db, TRACKS_COLLECTION, track.id);
-    const payload = {
+    const trackDocRef = doc(db, TRACKS_COLLECTION, safeId);
+    const cleanedTrack = stripUndefined({
       ...track,
+      id: safeId,
+      title: String(track.title || 'משחק דקדוק').slice(0, 300),
+      difficulty: String(track.difficulty || 'basic').slice(0, 60),
+      stages: Array.isArray(track.stages) ? track.stages.slice(0, 50) : [],
+      packages: Array.isArray(track.packages) ? track.packages : [],
+      questions: Array.isArray(track.questions) ? track.questions : [],
+    });
+    const payload = {
+      ...cleanedTrack,
       isPublished: true,
       updatedAt: new Date().toISOString(),
     };
     await setDoc(trackDocRef, payload, { merge: true });
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
+    throw error;
   }
 }
 
@@ -96,12 +135,14 @@ export async function saveAllGameTracksToFirestore(tracks: GameTrack[]): Promise
  * Delete a game track from Firestore
  */
 export async function deleteGameTrackFromFirestore(trackId: string): Promise<void> {
-  const path = `${TRACKS_COLLECTION}/${trackId}`;
+  const safeId = sanitizeFirestoreId(trackId, 'track');
+  const path = `${TRACKS_COLLECTION}/${safeId}`;
   try {
-    const trackDocRef = doc(db, TRACKS_COLLECTION, trackId);
+    const trackDocRef = doc(db, TRACKS_COLLECTION, safeId);
     await deleteDoc(trackDocRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+    throw error;
   }
 }
 
@@ -143,6 +184,7 @@ export function subscribeToGameTracks(
     },
     (error) => {
       handleFirestoreError(error, OperationType.GET, TRACKS_COLLECTION);
+      if (onError) onError(error);
     }
   );
 }
@@ -151,21 +193,26 @@ export function subscribeToGameTracks(
  * Save student progress to Firestore
  */
 export async function saveStudentRecordToFirestore(record: StudentProgressRecord): Promise<void> {
-  const path = `${STUDENT_RECORDS_COLLECTION}/${record.id}`;
+  const safeId = sanitizeFirestoreId(record.id, 'prog');
+  const path = `${STUDENT_RECORDS_COLLECTION}/${safeId}`;
   try {
-    const recordDocRef = doc(db, STUDENT_RECORDS_COLLECTION, record.id);
+    const recordDocRef = doc(db, STUDENT_RECORDS_COLLECTION, safeId);
+    const cleanedRecord = stripUndefined({
+      ...record,
+      id: safeId,
+    });
     const payload = {
-      id: record.id,
-      studentName: record.studentName || 'תלמיד אנונימי',
-      trackId: record.gameTrackId,
-      trackTitle: record.gameTrackTitle,
-      currentStageIndex: record.currentStageNumber,
-      score: record.score,
-      correctAnswers: record.correctAnswers,
-      totalQuestionsAnswered: record.totalQuestions,
-      completed: record.currentStageNumber >= record.totalStages,
+      id: safeId,
+      studentName: String(record.studentName || 'תלמיד אנונימי').slice(0, 150),
+      trackId: sanitizeFirestoreId(record.gameTrackId || 'track-basic-binyan1', 'track'),
+      trackTitle: String(record.gameTrackTitle || '').slice(0, 300),
+      currentStageIndex: Math.max(0, Number(record.currentStageNumber) || 1),
+      score: Math.max(0, Number(record.score) || 0),
+      correctAnswers: Math.max(0, Number(record.correctAnswers) || 0),
+      totalQuestionsAnswered: Math.max(0, Number(record.totalQuestions) || 0),
+      completed: (Number(record.currentStageNumber) || 1) >= (Number(record.totalStages) || 1),
       updatedAt: new Date().toISOString(),
-      rawRecord: record,
+      rawRecord: cleanedRecord,
     };
     await setDoc(recordDocRef, payload, { merge: true });
   } catch (error) {

@@ -97,9 +97,12 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
     );
   };
 
+  const [stageError, setStageError] = useState<string | null>(null);
+
   const handleAddStage = () => {
+    setStageError(null);
     if (stages.length >= 4) {
-      alert('ניתן להגדיר עד 4 שלבים במשחק.');
+      setStageError('ניתן להגדיר עד 4 שלבים במשחק.');
       return;
     }
     const nextStageNum = stages.length + 1;
@@ -129,16 +132,15 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
   };
 
   const handleRemoveStage = (idx: number) => {
+    setStageError(null);
     if (stages.length <= 1) {
-      alert('חייב להישאר לפחות שלב אחד במשחק.');
+      setStageError('חייב להישאר לפחות שלב אחד במשחק.');
       return;
     }
-    if (confirm('האם להסיר שלב זה מהמסלול?')) {
-      const filtered = stages
-        .filter((_, i) => i !== idx)
-        .map((s, i) => ({ ...s, stageNumber: i + 1 }));
-      setStages(filtered);
-    }
+    const filtered = stages
+      .filter((_, i) => i !== idx)
+      .map((s, i) => ({ ...s, stageNumber: i + 1 }));
+    setStages(filtered);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -388,6 +390,12 @@ export const TrackEditorModal: React.FC<TrackEditorModalProps> = ({
               ))}
             </div>
           </div>
+
+          {stageError && (
+            <div className="p-2.5 bg-rose-950/60 border border-rose-500/40 rounded-xl text-rose-200 text-xs font-semibold text-center">
+              {stageError}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
