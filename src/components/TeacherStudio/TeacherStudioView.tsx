@@ -54,7 +54,7 @@ interface TeacherStudioViewProps {
   tracks: GameTrack[];
   activeTrackId: string;
   onSelectTrack: (trackId: string) => void;
-  onUpdateTracks: (tracks: GameTrack[]) => void;
+  onUpdateTracks: (tracks: GameTrack[]) => Promise<boolean> | void;
   onReturnToGame: () => void;
   onLockStudio?: () => void;
   onOpenGDevelopSpec?: () => void;
@@ -72,15 +72,29 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [activeTab, setActiveTab] = useState<'tracks' | 'packages' | 'questions' | 'analytics' | 'export_import'>('tracks');
   const [copiedLink, setCopiedLink] = useState(false);
   const [cloudSyncLoading, setCloudSyncLoading] = useState(false);
-  const [cloudMessage, setCloudMessage] = useState<{ text: string; isError?: boolean } | null>(null);
+  const [cloudMessage, setCloudMessage] = useState<{
+    text: string;
+    isError?: boolean;
+    isSyncing?: boolean;
+  } | null>(null);
+  const noticeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     message: string;
     onConfirm: () => void;
   } | null>(null);
 
-  const showNotice = (text: string, isError = false) => {
-    setCloudMessage({ text, isError });
-    setTimeout(() => setCloudMessage(null), 5000);
+  const showNotice = (text: string, isError = false, isSyncing = false) => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+    setCloudMessage({ text, isError, isSyncing });
+    if (!isSyncing) {
+      noticeTimerRef.current = setTimeout(() => {
+        setCloudMessage(null);
+        noticeTimerRef.current = null;
+      }, 5000);
+    }
   };
 
   // Auth state for teacher
@@ -165,11 +179,21 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [isEditTrackModalOpen, setIsEditTrackModalOpen] = useState(false);
   const [editingTrackForModal, setEditingTrackForModal] = useState<GameTrack | null>(null);
 
-  const handleSaveEditedTrack = (updatedTrack: GameTrack) => {
+  const syncTracksAndNotify = async (updatedTracks: GameTrack[], successText: string) => {
+    showNotice('שומר ומסנכרן שינויים לענן Firebase...', false, true);
+    const res = await onUpdateTracks(updatedTracks);
+    if (res === false) {
+      showNotice('השינוי נשמר מקומית, אך הסנכרון לענן Firebase נכשל. בדקו חיבור לאינטרנט ונסו שוב.', true);
+    } else {
+      showNotice(successText);
+    }
+  };
+
+  const handleSaveEditedTrack = async (updatedTrack: GameTrack) => {
     const updated = tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t));
-    onUpdateTracks(updated);
     setIsEditTrackModalOpen(false);
     setEditingTrackForModal(null);
+    await syncTracksAndNotify(updated, 'פרטי הרמה נשמרו וסונכרנו לענן (Firebase) ☁️');
   };
 
   // New Track creation inline modal
@@ -179,7 +203,7 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [newTrackDesc, setNewTrackDesc] = useState('');
 
   // Handle Track Save
-  const handleCreateTrack = (e: React.FormEvent) => {
+  const handleCreateTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTrackTitle.trim()) return;
 
@@ -195,11 +219,11 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     };
 
     const updated = [...tracks, newTrack];
-    onUpdateTracks(updated);
     onSelectTrack(newTrack.id);
     setIsCreatingTrack(false);
     setNewTrackTitle('');
     setNewTrackDesc('');
+    await syncTracksAndNotify(updated, 'המשחק החדש נוצר וסונכרן לענן (Firebase) ☁️');
   };
 
   const handleDeleteTrack = (trackId: string) => {
@@ -209,10 +233,10 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     }
     setConfirmAction({
       message: 'האם אתם בטוחים שברצונכם למחוק משחק זה?',
-      onConfirm: () => {
+      onConfirm: async () => {
         const updated = tracks.filter((t) => t.id !== trackId);
-        onUpdateTracks(updated);
         onSelectTrack(updated[0].id);
+        await syncTracksAndNotify(updated, 'המשחק נמחק ועודכן בענן ☁️');
         deleteGameTrackFromFirestore(trackId).catch((err) => {
           console.error('Failed to delete track from Firestore:', err);
         });
@@ -221,7 +245,7 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   };
 
   // Packages within active track with stage and station placement
-  const handleSavePackage = (
+  const handleSavePackage = async (
     pkg: KnowledgePackage,
     targetStageId?: string,
     targetNodeId?: string
@@ -350,15 +374,18 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
       packages: updatedPackages,
       stages: updatedStages,
     };
-    onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
     setIsPackageModalOpen(false);
     setEditingPackage(null);
+    await syncTracksAndNotify(
+      tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)),
+      'חבילת הידע נשמרה וסונכרנה לענן (Firebase) ☁️'
+    );
   };
 
   const handleDeletePackage = (pkgId: string) => {
     setConfirmAction({
       message: 'האם למחוק חבילת ידע זו מהמשחק?',
-      onConfirm: () => {
+      onConfirm: async () => {
         const updatedPackages = currentTrack.packages.filter((p) => p.id !== pkgId);
         const updatedStages = currentTrack.stages.map((stg, sIdx) => {
           const preset =
@@ -377,13 +404,16 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           packages: updatedPackages,
           stages: updatedStages,
         };
-        onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
+        await syncTracksAndNotify(
+          tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)),
+          'חבילת הידע נמחקה והשינוי סונכרן לענן ☁️'
+        );
       },
     });
   };
 
   // Questions within active track with stage and station placement
-  const handleSaveQuestion = (q: Question, targetStageId?: string, targetNodeId?: string) => {
+  const handleSaveQuestion = async (q: Question, targetStageId?: string, targetNodeId?: string) => {
     const existing = currentTrack.questions.find((item) => item.id === q.id);
     const updatedQuestions = existing
       ? currentTrack.questions.map((item) => (item.id === q.id ? q : item))
@@ -453,15 +483,18 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
       questions: updatedQuestions,
       stages: updatedStages,
     };
-    onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
     setIsQuestionModalOpen(false);
     setEditingQuestion(null);
+    await syncTracksAndNotify(
+      tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)),
+      'השאלה נשמרה וסונכרנה לענן (Firebase) ☁️'
+    );
   };
 
   const handleDeleteQuestion = (qId: string) => {
     setConfirmAction({
       message: 'האם למחוק שאלה זו מהמשחק?',
-      onConfirm: () => {
+      onConfirm: async () => {
         const updatedQuestions = currentTrack.questions.filter((item) => item.id !== qId);
         const updatedStages = currentTrack.stages.map((stg, sIdx) => {
           const preset =
@@ -475,7 +508,10 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           return { ...stg, nodes, scenes };
         });
         const updatedTrack: GameTrack = { ...currentTrack, questions: updatedQuestions, stages: updatedStages };
-        onUpdateTracks(tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)));
+        await syncTracksAndNotify(
+          tracks.map((t) => (t.id === updatedTrack.id ? updatedTrack : t)),
+          'השאלה נמחקה והשינוי סונכרן לענן ☁️'
+        );
       },
     });
   };
@@ -510,15 +546,14 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const parsed = JSON.parse(event.target?.result as string);
         if (parsed.tracks && Array.isArray(parsed.tracks)) {
-          onUpdateTracks(parsed.tracks);
           if (parsed.tracks.length > 0) {
             onSelectTrack(parsed.tracks[0].id);
           }
-          showNotice('מאגר המשחקים יובא בהצלחה לענן ולמכשיר! ☁️');
+          await syncTracksAndNotify(parsed.tracks, 'מאגר המשחקים יובא בהצלחה לענן ולמכשיר! ☁️');
         } else {
           showNotice('מבנה קובץ ה-JSON אינו תקין.', true);
         }
@@ -642,21 +677,28 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
         </div>
       </header>
 
+      {/* Floating Cloud Notification Toast (always visible regardless of scroll position) */}
+      {cloudMessage && (
+        <div
+          className={`fixed top-16 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md p-3.5 border rounded-2xl text-xs sm:text-sm font-bold flex items-center gap-2.5 shadow-2xl backdrop-blur-md animate-fade-in ${
+            cloudMessage.isError
+              ? 'bg-rose-950/95 border-rose-500/70 text-rose-100'
+              : cloudMessage.isSyncing
+              ? 'bg-amber-950/95 border-amber-500/70 text-amber-100'
+              : 'bg-emerald-950/95 border-emerald-500/70 text-emerald-100'
+          }`}
+        >
+          {cloudMessage.isSyncing ? (
+            <RefreshCw className="w-4 h-4 shrink-0 text-amber-400 animate-spin" />
+          ) : (
+            <Cloud className={`w-4 h-4 shrink-0 ${cloudMessage.isError ? 'text-rose-400' : 'text-emerald-400'}`} />
+          )}
+          <span className="flex-1">{cloudMessage.text}</span>
+        </div>
+      )}
+
       {/* Main Container */}
       <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 flex-1 flex flex-col">
-        {/* Cloud Notification Message */}
-        {cloudMessage && (
-          <div
-            className={`mb-4 p-3 border rounded-xl text-xs flex items-center gap-2 animate-fade-in shadow-lg ${
-              cloudMessage.isError
-                ? 'bg-rose-950/70 border-rose-500/50 text-rose-200'
-                : 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
-            }`}
-          >
-            <Cloud className={`w-4 h-4 shrink-0 ${cloudMessage.isError ? 'text-rose-400' : 'text-emerald-400'}`} />
-            <span>{cloudMessage.text}</span>
-          </div>
-        )}
         {/* Navigation Tabs */}
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3 mb-6">
           <button

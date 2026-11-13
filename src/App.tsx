@@ -138,7 +138,7 @@ export default function App() {
   }, []);
 
   // Update tracks handler that writes both locally and to Firestore
-  const handleUpdateTracks = async (updatedTracks: GameTrack[]) => {
+  const handleUpdateTracks = async (updatedTracks: GameTrack[]): Promise<boolean> => {
     setTracks(updatedTracks);
     try {
       localStorage.setItem('arabic_adventure_tracks', JSON.stringify(updatedTracks));
@@ -149,9 +149,11 @@ export default function App() {
     try {
       await saveAllGameTracksToFirestore(updatedTracks);
       setCloudSyncStatus('synced');
+      return true;
     } catch (err) {
       console.error('Failed to sync tracks to Firestore:', err);
       setCloudSyncStatus('local');
+      return false;
     }
   };
 

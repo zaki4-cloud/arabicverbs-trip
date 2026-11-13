@@ -126,9 +126,7 @@ export async function saveGameTrackToFirestore(track: GameTrack): Promise<void> 
  * Save multiple game tracks to Firestore (batch save)
  */
 export async function saveAllGameTracksToFirestore(tracks: GameTrack[]): Promise<void> {
-  for (const track of tracks) {
-    await saveGameTrackToFirestore(track);
-  }
+  await Promise.all(tracks.map((track) => saveGameTrackToFirestore(track)));
 }
 
 /**

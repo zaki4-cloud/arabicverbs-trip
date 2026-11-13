@@ -13,10 +13,15 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
       const safeStages =
         Array.isArray(track.stages) && track.stages.length > 0 ? track.stages : defaultTrack.stages;
 
-      // If track is missing questions from default (e.g. stages 3 & 4), merge them in
+      // Only auto-merge missing default questions for legacy tracks that predate stages 3 & 4 (< 4 questions and not yet published/edited)
       const existingQIds = new Set(safeQuestions.map((q) => q.id));
       const mergedQuestions: Question[] = [...safeQuestions];
-      if (defaultTrack && track.id === defaultTrack.id) {
+      const isLegacyUneditedDefault =
+        defaultTrack &&
+        track.id === defaultTrack.id &&
+        !(track as { isPublished?: boolean }).isPublished &&
+        safeQuestions.length < 4;
+      if (isLegacyUneditedDefault) {
         defaultTrack.questions.forEach((dq) => {
           if (!existingQIds.has(dq.id)) {
             mergedQuestions.push(dq);
@@ -53,6 +58,9 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
         stages: safeStages.map((stage, idx) => {
           const displacedPackageIds: string[] = [];
           const stageNodes = Array.isArray(stage.nodes) ? stage.nodes : [];
+          const stageAlreadyHasQuestions = stageNodes.some(
+            (sn) => sn.type === 'question' || Boolean(sn.questionId)
+          );
 
           // Clean nodes: remove confusing names, remove score on non-question landmarks, separate positions
           const cleanedNodes: StageNode[] = stageNodes.map((n) => {
@@ -77,26 +85,33 @@ export function migrateTrackMapImages(tracks: GameTrack[]): GameTrack[] {
             let questionId = n.questionId;
             let scoreReward = n.scoreReward;
 
-            // If stage 3 or 4 lacks questions, assign them to key landmarks
-            if (stage.id === 'stg-3' || stage.stageNumber === 3) {
-              if (n.landmarkType === 'sun_pyramid' || n.id === 'stg3-s2') {
-                type = 'question';
-                questionId = 'q-t1-4';
-                scoreReward = 120;
-              } else if (n.landmarkType === 'volcano' || n.id === 'stg3-s5') {
-                type = 'question';
-                questionId = 'q-t1-5';
-                scoreReward = 150;
-              }
-            } else if (stage.id === 'stg-4' || stage.stageNumber === 4) {
-              if (n.landmarkType === 'turquoise_lake' || n.id === 'stg4-s3') {
-                type = 'question';
-                questionId = 'q-t1-6';
-                scoreReward = 150;
-              } else if (n.landmarkType === 'snow_peak' || n.id === 'stg4-s5') {
-                type = 'question';
-                questionId = 'q-t1-7';
-                scoreReward = 200;
+            // Only seed default stage 3/4 questions on un-published default track when that stage has zero questions
+            if (
+              defaultTrack &&
+              track.id === defaultTrack.id &&
+              !(track as { isPublished?: boolean }).isPublished &&
+              !stageAlreadyHasQuestions
+            ) {
+              if (stage.id === 'stg-3' || stage.stageNumber === 3) {
+                if (n.landmarkType === 'sun_pyramid' || n.id === 'stg3-s2') {
+                  type = 'question';
+                  questionId = 'q-t1-4';
+                  scoreReward = 120;
+                } else if (n.landmarkType === 'volcano' || n.id === 'stg3-s5') {
+                  type = 'question';
+                  questionId = 'q-t1-5';
+                  scoreReward = 150;
+                }
+              } else if (stage.id === 'stg-4' || stage.stageNumber === 4) {
+                if (n.landmarkType === 'turquoise_lake' || n.id === 'stg4-s3') {
+                  type = 'question';
+                  questionId = 'q-t1-6';
+                  scoreReward = 150;
+                } else if (n.landmarkType === 'snow_peak' || n.id === 'stg4-s5') {
+                  type = 'question';
+                  questionId = 'q-t1-7';
+                  scoreReward = 200;
+                }
               }
             }
 
