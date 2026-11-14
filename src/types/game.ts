@@ -115,6 +115,8 @@ export interface GameTrack {
   stages: GameStage[];
   shareCode?: string;
   achievements?: string[]; // Custom level learning achievements / goals
+  revision?: number; // Monotonic cloud revision to prevent stale clients from overwriting newer edits
+  updatedAt?: string;
 }
 
 export interface StudentProgressRecord {

@@ -42,7 +42,6 @@ import { auth, googleProvider } from '../../firebase/config';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
   subscribeToStudentRecords,
-  saveAllGameTracksToFirestore,
   deleteGameTrackFromFirestore,
 } from '../../firebase/firestoreService';
 import {
@@ -53,8 +52,10 @@ import {
 interface TeacherStudioViewProps {
   tracks: GameTrack[];
   activeTrackId: string;
+  hasLoadedFromCloud?: boolean;
+  cloudSyncStatus?: 'syncing' | 'synced' | 'local';
   onSelectTrack: (trackId: string) => void;
-  onUpdateTracks: (tracks: GameTrack[]) => Promise<boolean> | void;
+  onUpdateTracks: (tracks: GameTrack[], forceAll?: boolean) => Promise<boolean> | void;
   onReturnToGame: () => void;
   onLockStudio?: () => void;
   onOpenGDevelopSpec?: () => void;
@@ -63,6 +64,8 @@ interface TeacherStudioViewProps {
 export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   tracks,
   activeTrackId,
+  hasLoadedFromCloud = true,
+  cloudSyncStatus = 'synced',
   onSelectTrack,
   onUpdateTracks,
   onReturnToGame,
@@ -124,11 +127,19 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   };
 
   const handleManualCloudSync = async () => {
+    if (!hasLoadedFromCloud) {
+      showNotice('ממתין לסנכרון ראשוני מהענן לפני שמירה כדי למנוע דריסת נתונים. נסו בעוד רגע.', true);
+      return;
+    }
     setCloudSyncLoading(true);
     setCloudMessage(null);
     try {
-      await saveAllGameTracksToFirestore(tracks);
-      showNotice('כל המשחקים והשלבים נשמרו בענן בהצלחה! ☁️');
+      const ok = await onUpdateTracks(tracks, true);
+      if (ok === false) {
+        showNotice('שגיאה בסנכרון לענן Firebase — השינוי נשמר מקומית בלבד.', true);
+      } else {
+        showNotice('כל המשחקים והשלבים אומתו ונשמרו בשרת הענן בהצלחה! ☁️');
+      }
     } catch (err) {
       console.error('Manual cloud sync failed:', err);
       const reason = err instanceof Error ? err.message : '';
@@ -179,11 +190,15 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [isEditTrackModalOpen, setIsEditTrackModalOpen] = useState(false);
   const [editingTrackForModal, setEditingTrackForModal] = useState<GameTrack | null>(null);
 
-  const syncTracksAndNotify = async (updatedTracks: GameTrack[], successText: string) => {
-    showNotice('שומר ומסנכרן שינויים לענן Firebase...', false, true);
-    const res = await onUpdateTracks(updatedTracks);
+  const syncTracksAndNotify = async (updatedTracks: GameTrack[], successText: string, forceAll = false) => {
+    if (!hasLoadedFromCloud) {
+      showNotice('ממתין לסנכרון ראשוני משרת הענן כדי למנוע דריסת נתונים — נסו שוב בעוד רגע.', true);
+      return;
+    }
+    showNotice('שומר ומאמת מול שרת הענן Firebase...', false, true);
+    const res = await onUpdateTracks(updatedTracks, forceAll);
     if (res === false) {
-      showNotice('השינוי נשמר מקומית, אך הסנכרון לענן Firebase נכשל. בדקו חיבור לאינטרנט ונסו שוב.', true);
+      showNotice('השמירה לשרת נכשלה! בדקו חיבור לאינטרנט וודאו שהענן מחובר.', true);
     } else {
       showNotice(successText);
     }
@@ -553,7 +568,7 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
           if (parsed.tracks.length > 0) {
             onSelectTrack(parsed.tracks[0].id);
           }
-          await syncTracksAndNotify(parsed.tracks, 'מאגר המשחקים יובא בהצלחה לענן ולמכשיר! ☁️');
+          await syncTracksAndNotify(parsed.tracks, 'מאגר המשחקים יובא, אומת וסונכרן לענן! ☁️', true);
         } else {
           showNotice('מבנה קובץ ה-JSON אינו תקין.', true);
         }
@@ -699,6 +714,22 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
 
       {/* Main Container */}
       <div className="max-w-6xl mx-auto w-full p-4 sm:p-6 flex-1 flex flex-col">
+        {(!hasLoadedFromCloud || cloudSyncStatus === 'local') && (
+          <div
+            className={`mb-4 p-3 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+              cloudSyncStatus === 'local'
+                ? 'bg-rose-950/70 border-rose-500/50 text-rose-200'
+                : 'bg-amber-950/60 border-amber-500/40 text-amber-200'
+            }`}
+          >
+            <Cloud className="w-4 h-4 shrink-0" />
+            <span>
+              {cloudSyncStatus === 'local'
+                ? '⚠️ אין חיבור פעיל לשרת Firebase כרגע — שינויים שתבצעו לא יישמרו בשרת ועלולים לא להופיע במכשירים אחרים.'
+                : 'טוען נתונים עדכניים משרת הענן Firebase... נא להמתין רגע לפני עריכת שאלות.'}
+            </span>
+          </div>
+        )}
         {/* Navigation Tabs */}
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 pb-3 mb-6">
           <button
@@ -839,6 +870,18 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
                         <div className="flex justify-between">
                           <span>שלבים במסלול:</span>
                           <strong className="text-slate-200">{track.stages.length} שלבי נוף</strong>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-emerald-400/90 pt-1">
+                          <span>גרסה שמורה בשרת:</span>
+                          <strong className="font-mono">
+                            #{track.revision ?? 0}
+                            {track.updatedAt
+                              ? ` (${new Date(track.updatedAt).toLocaleTimeString('he-IL', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })})`
+                              : ''}
+                          </strong>
                         </div>
                       </div>
                     </div>

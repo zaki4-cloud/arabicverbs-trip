@@ -28,6 +28,17 @@ service cloud.firestore {
         && data.stages is list && data.stages.size() <= 50;
     }
 
+    function isValidTrackRevision() {
+      return !('revision' in resource.data)
+        || !(resource.data.revision is number)
+        || resource.data.revision == 0
+        || (
+          'revision' in incoming()
+          && incoming().revision is number
+          && incoming().revision > resource.data.revision
+        );
+    }
+
     function isValidStudentRecord(data) {
       return data.id is string && data.id.size() > 0 && data.id.size() <= 128
         && data.studentName is string && data.studentName.size() <= 150
@@ -46,11 +57,13 @@ service cloud.firestore {
     }
 
     // Game tracks: educational levels created and customized by teachers
-    // Split get and list so collection-level onSnapshot list queries succeed
+    // Split get and list so collection-level onSnapshot list queries succeed.
+    // Updates enforce monotonic revision so old cached browser tabs cannot reset newer cloud data.
     match /game_tracks/{trackId} {
       allow list: if true;
       allow get: if isValidId(trackId);
-      allow create, update: if isValidId(trackId) && isValidGameTrack(incoming());
+      allow create: if isValidId(trackId) && isValidGameTrack(incoming());
+      allow update: if isValidId(trackId) && isValidGameTrack(incoming()) && isValidTrackRevision();
       allow delete: if isValidId(trackId);
     }
 

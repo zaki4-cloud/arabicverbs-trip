@@ -3,15 +3,16 @@ import {
   doc,
   setDoc,
   getDoc,
+  getDocFromServer,
   getDocs,
+  getDocsFromServer,
   deleteDoc,
   onSnapshot,
   query,
-  orderBy,
   limit,
 } from 'firebase/firestore';
 import { db, auth } from './config';
-import { GameTrack, StudentProgressRecord } from '../types/game';
+import { DifficultyLevel, GameTrack, StudentProgressRecord } from '../types/game';
 import { INITIAL_GAME_TRACKS } from '../data/initialPackages';
 import { migrateTrackMapImages } from '../utils/trackMigration';
 
@@ -93,29 +94,72 @@ function sanitizeFirestoreId(rawId: string, prefix: string): string {
   return cleaned.length > 0 ? cleaned : `${prefix}-${Date.now()}`;
 }
 
+function normalizeTrackForDiff(track: GameTrack): string {
+  const { revision: _r, updatedAt: _u, ...rest } = track;
+  return JSON.stringify(stripUndefined(rest));
+}
+
 /**
- * Save or update a single game track to Firestore
+ * Save or update a single game track to Firestore with monotonic revision & server read-back verification.
  */
-export async function saveGameTrackToFirestore(track: GameTrack): Promise<void> {
+export async function saveGameTrackToFirestore(
+  track: GameTrack,
+  options: { isTeacherEdit?: boolean; verifyFromServer?: boolean } = {}
+): Promise<GameTrack> {
+  const { isTeacherEdit = true, verifyFromServer = true } = options;
   const safeId = sanitizeFirestoreId(track.id, 'track');
   const path = `${TRACKS_COLLECTION}/${safeId}`;
   try {
     const trackDocRef = doc(db, TRACKS_COLLECTION, safeId);
+
+    // Check current server revision so we monotonically advance it and never fail revision guard
+    let serverRevision = 0;
+    try {
+      const currentServerSnap = await getDocFromServer(trackDocRef);
+      if (currentServerSnap.exists()) {
+        const sRev = currentServerSnap.data()?.revision;
+        if (typeof sRev === 'number' && Number.isFinite(sRev)) {
+          serverRevision = sRev;
+        }
+      }
+    } catch {
+      // If offline or new doc, continue with local revision
+    }
+
+    const baseRevision = Math.max(Number(track.revision) || 0, serverRevision);
+    const nextRevision = isTeacherEdit ? baseRevision + 1 : baseRevision;
+    const updatedAt = new Date().toISOString();
+
     const cleanedTrack = stripUndefined({
       ...track,
       id: safeId,
       title: String(track.title || 'משחק דקדוק').slice(0, 300),
-      difficulty: String(track.difficulty || 'basic').slice(0, 60),
+      difficulty: (['basic', 'intermediate', 'advanced'].includes(String(track.difficulty))
+        ? track.difficulty
+        : 'basic') as DifficultyLevel,
       stages: Array.isArray(track.stages) ? track.stages.slice(0, 50) : [],
       packages: Array.isArray(track.packages) ? track.packages : [],
       questions: Array.isArray(track.questions) ? track.questions : [],
+      revision: nextRevision,
+      updatedAt,
     });
+
     const payload = {
       ...cleanedTrack,
       isPublished: true,
-      updatedAt: new Date().toISOString(),
     };
-    await setDoc(trackDocRef, payload, { merge: true });
+
+    await setDoc(trackDocRef, payload);
+
+    if (verifyFromServer) {
+      const verifySnap = await getDocFromServer(trackDocRef);
+      const savedData = verifySnap.data();
+      if (!verifySnap.exists() || savedData?.updatedAt !== updatedAt || savedData?.revision !== nextRevision) {
+        throw new Error('Server verification mismatch after saving track');
+      }
+    }
+
+    return cleanedTrack;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
     throw error;
@@ -123,10 +167,34 @@ export async function saveGameTrackToFirestore(track: GameTrack): Promise<void> 
 }
 
 /**
+ * Save only changed tracks (or all tracks when forceAll is true) and return tracks with confirmed server revisions.
+ */
+export async function saveChangedTracksToFirestore(
+  prevTracks: GameTrack[],
+  nextTracks: GameTrack[],
+  forceAll = false
+): Promise<GameTrack[]> {
+  const prevMap = new Map(prevTracks.map((t) => [t.id, normalizeTrackForDiff(t)]));
+
+  const savedTracks = await Promise.all(
+    nextTracks.map(async (track) => {
+      const prevNorm = prevMap.get(track.id);
+      const nextNorm = normalizeTrackForDiff(track);
+      if (!forceAll && prevNorm === nextNorm) {
+        return track;
+      }
+      return saveGameTrackToFirestore(track, { isTeacherEdit: true, verifyFromServer: true });
+    })
+  );
+
+  return savedTracks;
+}
+
+/**
  * Save multiple game tracks to Firestore (batch save)
  */
-export async function saveAllGameTracksToFirestore(tracks: GameTrack[]): Promise<void> {
-  await Promise.all(tracks.map((track) => saveGameTrackToFirestore(track)));
+export async function saveAllGameTracksToFirestore(tracks: GameTrack[]): Promise<GameTrack[]> {
+  return Promise.all(tracks.map((track) => saveGameTrackToFirestore(track, { isTeacherEdit: true, verifyFromServer: true })));
 }
 
 /**
@@ -146,23 +214,39 @@ export async function deleteGameTrackFromFirestore(trackId: string): Promise<voi
 
 /**
  * Listen in real-time to all game tracks from Firestore.
- * Automatically seeds the initial tracks if the collection is empty.
+ * Verifies directly with server before seeding so transient empty snapshots never reset existing cloud data.
  */
 export function subscribeToGameTracks(
   onTracksUpdated: (tracks: GameTrack[]) => void,
   onError?: (err: Error) => void
 ) {
   const colRef = collection(db, TRACKS_COLLECTION);
-  
+
   return onSnapshot(
     colRef,
     async (snapshot) => {
       try {
         if (snapshot.empty) {
-          console.log('Firestore tracks collection empty. Seeding initial tracks...');
-          // Seed the initial default tracks to Firestore so all clients have them in sync
-          await saveAllGameTracksToFirestore(INITIAL_GAME_TRACKS);
-          onTracksUpdated(INITIAL_GAME_TRACKS);
+          // Double-check directly against the server before ever considering seeding
+          const serverSnap = await getDocsFromServer(colRef);
+          if (!serverSnap.empty) {
+            const serverTracks: GameTrack[] = [];
+            serverSnap.forEach((docSnap) => {
+              serverTracks.push(docSnap.data() as GameTrack);
+            });
+            if (serverTracks.length > 0) {
+              onTracksUpdated(migrateTrackMapImages(serverTracks));
+            }
+            return;
+          }
+
+          console.log('Firestore tracks collection truly empty on server. Seeding initial tracks (revision 0)...');
+          const seeded = await Promise.all(
+            INITIAL_GAME_TRACKS.map((t) =>
+              saveGameTrackToFirestore({ ...t, revision: 0 }, { isTeacherEdit: false, verifyFromServer: false })
+            )
+          );
+          onTracksUpdated(seeded);
           return;
         }
 

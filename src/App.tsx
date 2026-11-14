@@ -9,7 +9,7 @@ import { INITIAL_GAME_TRACKS } from './data/initialPackages';
 import { GameTrack } from './types/game';
 import {
   subscribeToGameTracks,
-  saveAllGameTracksToFirestore,
+  saveChangedTracksToFirestore,
 } from './firebase/firestoreService';
 import { migrateTrackMapImages } from './utils/trackMigration';
 
@@ -38,6 +38,7 @@ export default function App() {
 
   const [showTeacherAuthModal, setShowTeacherAuthModal] = useState<boolean>(false);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'syncing' | 'synced' | 'local'>('syncing');
+  const [hasLoadedFromCloud, setHasLoadedFromCloud] = useState<boolean>(false);
 
   // Persist viewMode
   useEffect(() => {
@@ -75,6 +76,13 @@ export default function App() {
     return INITIAL_GAME_TRACKS;
   });
 
+  const tracksRef = useRef<GameTrack[]>(tracks);
+  useEffect(() => {
+    tracksRef.current = tracks;
+  }, [tracks]);
+
+  const pendingSavesRef = useRef<number>(0);
+
   const [activeTrackId, setActiveTrackId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -86,13 +94,19 @@ export default function App() {
     return INITIAL_GAME_TRACKS[0].id;
   });
 
-  const hasAutoSyncedRef = useRef(false);
-
   // Subscribe to real-time updates from Firebase Firestore
   useEffect(() => {
     setCloudSyncStatus('syncing');
     const unsubscribe = subscribeToGameTracks(
       (firestoreTracks) => {
+        setHasLoadedFromCloud(true);
+        setCloudSyncStatus('synced');
+
+        // Never let an intermediate snapshot clobber an in-flight teacher save
+        if (pendingSavesRef.current > 0) {
+          return;
+        }
+
         if (firestoreTracks && firestoreTracks.length > 0) {
           const upgraded = migrateTrackMapImages(firestoreTracks);
           if (upgraded.length > 0) {
@@ -102,20 +116,6 @@ export default function App() {
               }
               return upgraded;
             });
-            setCloudSyncStatus('synced');
-
-            // Auto-sync missing scenes to Firestore at most ONCE per session to prevent repeated write loops
-            if (!hasAutoSyncedRef.current) {
-              const needsFirestoreSync = firestoreTracks.some(
-                (t) => !t.stages || t.stages.some((s) => !s.scenes || s.scenes.length === 0)
-              );
-              if (needsFirestoreSync) {
-                hasAutoSyncedRef.current = true;
-                saveAllGameTracksToFirestore(upgraded).catch((err) =>
-                  console.warn('Auto-syncing upgraded scenes to Firestore:', err)
-                );
-              }
-            }
 
             // Update localStorage cache
             try {
@@ -137,23 +137,41 @@ export default function App() {
     };
   }, []);
 
-  // Update tracks handler that writes both locally and to Firestore
-  const handleUpdateTracks = async (updatedTracks: GameTrack[]): Promise<boolean> => {
+  // Update tracks handler that writes ONLY changed tracks and verifies server confirmation
+  const handleUpdateTracks = async (updatedTracks: GameTrack[], forceAll = false): Promise<boolean> => {
+    if (!hasLoadedFromCloud) {
+      console.warn('Blocked track overwrite before initial cloud sync completed.');
+      return false;
+    }
+
+    const previousTracks = tracksRef.current;
     setTracks(updatedTracks);
+    tracksRef.current = updatedTracks;
     try {
       localStorage.setItem('arabic_adventure_tracks', JSON.stringify(updatedTracks));
     } catch {
       // Ignore
     }
+
     setCloudSyncStatus('syncing');
+    pendingSavesRef.current += 1;
     try {
-      await saveAllGameTracksToFirestore(updatedTracks);
+      const confirmedTracks = await saveChangedTracksToFirestore(previousTracks, updatedTracks, forceAll);
+      setTracks(confirmedTracks);
+      tracksRef.current = confirmedTracks;
+      try {
+        localStorage.setItem('arabic_adventure_tracks', JSON.stringify(confirmedTracks));
+      } catch {
+        // Ignore
+      }
       setCloudSyncStatus('synced');
       return true;
     } catch (err) {
       console.error('Failed to sync tracks to Firestore:', err);
       setCloudSyncStatus('local');
       return false;
+    } finally {
+      pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
     }
   };
 
@@ -298,6 +316,8 @@ export default function App() {
             <TeacherStudioView
               tracks={tracks}
               activeTrackId={activeTrackId}
+              hasLoadedFromCloud={hasLoadedFromCloud}
+              cloudSyncStatus={cloudSyncStatus}
               onSelectTrack={(id) => {
                 setActiveTrackId(id);
               }}
