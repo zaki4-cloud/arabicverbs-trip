@@ -90,9 +90,27 @@ export default function App() {
       if (trackParam) {
         return trackParam;
       }
+      try {
+        const savedTrackId = localStorage.getItem('arabic_adventure_active_track_id');
+        if (savedTrackId) {
+          return savedTrackId;
+        }
+      } catch {
+        // Ignore
+      }
     }
     return INITIAL_GAME_TRACKS[0].id;
   });
+
+  useEffect(() => {
+    try {
+      if (activeTrackId) {
+        localStorage.setItem('arabic_adventure_active_track_id', activeTrackId);
+      }
+    } catch {
+      // Ignore
+    }
+  }, [activeTrackId]);
 
   // Subscribe to real-time updates from Firebase Firestore
   useEffect(() => {
@@ -137,21 +155,23 @@ export default function App() {
     };
   }, []);
 
-  // Update tracks handler that writes ONLY changed tracks and verifies server confirmation
-  const handleUpdateTracks = async (updatedTracks: GameTrack[], forceAll = false): Promise<boolean> => {
-    if (!hasLoadedFromCloud) {
+  // Update tracks handler that writes ONLY changed tracks, verifies server confirmation, and rolls back on error
+  const handleUpdateTracks = async (
+    updatedTracks: GameTrack[],
+    forceAll = false,
+    options?: { allowBeforeInitialLoad?: boolean }
+  ): Promise<{ ok: boolean; error?: string; tracks?: GameTrack[] }> => {
+    if (!hasLoadedFromCloud && !options?.allowBeforeInitialLoad) {
       console.warn('Blocked track overwrite before initial cloud sync completed.');
-      return false;
+      return {
+        ok: false,
+        error: 'ממתין לסנכרון ראשוני משרת הענן לפני שמירה.',
+      };
     }
 
     const previousTracks = tracksRef.current;
     setTracks(updatedTracks);
     tracksRef.current = updatedTracks;
-    try {
-      localStorage.setItem('arabic_adventure_tracks', JSON.stringify(updatedTracks));
-    } catch {
-      // Ignore
-    }
 
     setCloudSyncStatus('syncing');
     pendingSavesRef.current += 1;
@@ -159,17 +179,27 @@ export default function App() {
       const confirmedTracks = await saveChangedTracksToFirestore(previousTracks, updatedTracks, forceAll);
       setTracks(confirmedTracks);
       tracksRef.current = confirmedTracks;
+      setHasLoadedFromCloud(true);
       try {
         localStorage.setItem('arabic_adventure_tracks', JSON.stringify(confirmedTracks));
       } catch {
         // Ignore
       }
       setCloudSyncStatus('synced');
-      return true;
+      return { ok: true, tracks: confirmedTracks };
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
       console.error('Failed to sync tracks to Firestore:', err);
+      // Roll back optimistic state so local cache never diverges from server truth
+      setTracks(previousTracks);
+      tracksRef.current = previousTracks;
+      try {
+        localStorage.setItem('arabic_adventure_tracks', JSON.stringify(previousTracks));
+      } catch {
+        // Ignore
+      }
       setCloudSyncStatus('local');
-      return false;
+      return { ok: false, error: errorMsg };
     } finally {
       pendingSavesRef.current = Math.max(0, pendingSavesRef.current - 1);
     }

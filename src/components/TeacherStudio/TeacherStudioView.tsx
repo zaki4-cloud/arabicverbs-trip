@@ -24,6 +24,8 @@ import {
   UserCheck,
   MapPin,
   Cpu,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import {
   GameTrack,
@@ -38,6 +40,11 @@ import { TrackEditorModal } from './TrackEditorModal';
 import { PedagogicalExplanationView } from '../Common/PedagogicalExplanationView';
 import { resolveImageUrl } from '../../utils/imageUrl';
 import { formatDurationHebrew, cleanTenseLabel, cleanPersonLabel } from '../../utils/grammarLabels';
+import {
+  parseImportedGameTracksJson,
+  optimizeTracksForFirestoreSize,
+  ParsedJsonImportResult,
+} from '../../utils/jsonImport';
 import { auth, googleProvider } from '../../firebase/config';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import {
@@ -55,7 +62,11 @@ interface TeacherStudioViewProps {
   hasLoadedFromCloud?: boolean;
   cloudSyncStatus?: 'syncing' | 'synced' | 'local';
   onSelectTrack: (trackId: string) => void;
-  onUpdateTracks: (tracks: GameTrack[], forceAll?: boolean) => Promise<boolean> | void;
+  onUpdateTracks: (
+    tracks: GameTrack[],
+    forceAll?: boolean,
+    options?: { allowBeforeInitialLoad?: boolean }
+  ) => Promise<{ ok: boolean; error?: string; tracks?: GameTrack[] } | boolean> | void;
   onReturnToGame: () => void;
   onLockStudio?: () => void;
   onOpenGDevelopSpec?: () => void;
@@ -126,6 +137,14 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     }
   };
 
+  const [importStatus, setImportStatus] = useState<{
+    state: 'idle' | 'loading' | 'success' | 'error';
+    fileName?: string;
+    message?: string;
+    detail?: string;
+    summary?: ParsedJsonImportResult;
+  }>({ state: 'idle' });
+
   const handleManualCloudSync = async () => {
     if (!hasLoadedFromCloud) {
       showNotice('ממתין לסנכרון ראשוני מהענן לפני שמירה כדי למנוע דריסת נתונים. נסו בעוד רגע.', true);
@@ -134,9 +153,11 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
     setCloudSyncLoading(true);
     setCloudMessage(null);
     try {
-      const ok = await onUpdateTracks(tracks, true);
-      if (ok === false) {
-        showNotice('שגיאה בסנכרון לענן Firebase — השינוי נשמר מקומית בלבד.', true);
+      const res = await onUpdateTracks(tracks, true);
+      const ok = typeof res === 'object' && res !== null ? res.ok : res !== false;
+      const errMsg = typeof res === 'object' && res !== null ? res.error : undefined;
+      if (!ok) {
+        showNotice(`שגיאה בסנכרון לענן Firebase${errMsg ? `: ${errMsg}` : ' — השינוי לא נשמר בשרת.'}`, true);
       } else {
         showNotice('כל המשחקים והשלבים אומתו ונשמרו בשרת הענן בהצלחה! ☁️');
       }
@@ -190,17 +211,39 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   const [isEditTrackModalOpen, setIsEditTrackModalOpen] = useState(false);
   const [editingTrackForModal, setEditingTrackForModal] = useState<GameTrack | null>(null);
 
-  const syncTracksAndNotify = async (updatedTracks: GameTrack[], successText: string, forceAll = false) => {
-    if (!hasLoadedFromCloud) {
-      showNotice('ממתין לסנכרון ראשוני משרת הענן כדי למנוע דריסת נתונים — נסו שוב בעוד רגע.', true);
-      return;
+  const syncTracksAndNotify = async (
+    updatedTracks: GameTrack[],
+    successText: string,
+    forceAll = false,
+    options?: { allowBeforeInitialLoad?: boolean }
+  ): Promise<{ ok: boolean; error?: string; tracks?: GameTrack[] }> => {
+    if (!hasLoadedFromCloud && !options?.allowBeforeInitialLoad) {
+      const msg = 'ממתין לסנכרון ראשוני משרת הענן כדי למנוע דריסת נתונים — נסו שוב בעוד רגע.';
+      showNotice(msg, true);
+      return { ok: false, error: msg };
     }
     showNotice('שומר ומאמת מול שרת הענן Firebase...', false, true);
-    const res = await onUpdateTracks(updatedTracks, forceAll);
-    if (res === false) {
-      showNotice('השמירה לשרת נכשלה! בדקו חיבור לאינטרנט וודאו שהענן מחובר.', true);
-    } else {
+    try {
+      const res = await onUpdateTracks(updatedTracks, forceAll, options);
+      if (typeof res === 'object' && res !== null) {
+        if (!res.ok) {
+          showNotice(`השמירה לשרת נכשלה${res.error ? `: ${res.error}` : '!'}`, true);
+          return res;
+        }
+        showNotice(successText);
+        return res;
+      }
+      if (res === false) {
+        const msg = 'השמירה לשרת נכשלה! בדקו חיבור לאינטרנט וודאו שהענן מחובר.';
+        showNotice(msg, true);
+        return { ok: false, error: msg };
+      }
       showNotice(successText);
+      return { ok: true, tracks: updatedTracks };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showNotice(`השמירה לשרת נכשלה: ${msg}`, true);
+      return { ok: false, error: msg };
     }
   };
 
@@ -557,23 +600,82 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
   };
 
   const handleImportJson = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    // Reset input immediately so re-selecting the same JSON file always triggers onChange
+    input.value = '';
     if (!file) return;
 
+    setImportStatus({
+      state: 'loading',
+      fileName: file.name,
+      message: 'טוען קובץ ומאמת מול שרת הענן Firebase...',
+    });
+
     const reader = new FileReader();
+    reader.onerror = () => {
+      const msg = 'שגיאה בקריאת הקובץ מהמכשיר.';
+      setImportStatus({ state: 'error', fileName: file.name, message: msg });
+      showNotice(msg, true);
+    };
+
     reader.onload = async (event) => {
       try {
-        const parsed = JSON.parse(event.target?.result as string);
-        if (parsed.tracks && Array.isArray(parsed.tracks)) {
-          if (parsed.tracks.length > 0) {
-            onSelectTrack(parsed.tracks[0].id);
-          }
-          await syncTracksAndNotify(parsed.tracks, 'מאגר המשחקים יובא, אומת וסונכרן לענן! ☁️', true);
-        } else {
-          showNotice('מבנה קובץ ה-JSON אינו תקין.', true);
+        const rawText = String(event.target?.result ?? '');
+        const parsedResult = parseImportedGameTracksJson(rawText, tracks, currentTrack.id);
+        const sizeSafeTracks = await optimizeTracksForFirestoreSize(parsedResult.tracks);
+
+        const saveResult = await syncTracksAndNotify(
+          sizeSafeTracks,
+          `יובאו ${parsedResult.importedQuestionsCount} שאלות ו-${parsedResult.importedPackagesCount} חבילות ידע ואומתו בשרת הענן! ☁️`,
+          true,
+          { allowBeforeInitialLoad: true }
+        );
+
+        if (!saveResult.ok) {
+          setImportStatus({
+            state: 'error',
+            fileName: file.name,
+            message: 'הקובץ נקרא בהצלחה, אך השמירה לשרת הענן נכשלה ולכן הנתונים לא שונו.',
+            detail: saveResult.error,
+          });
+          return;
         }
-      } catch {
-        showNotice('שגיאה בקריאת הקובץ.', true);
+
+        onSelectTrack(parsedResult.preferredActiveTrackId);
+
+        const confirmedList = saveResult.tracks || sizeSafeTracks;
+        const confirmedMap = new Map(confirmedList.map((t) => [t.id, t]));
+        const refreshedSummary: ParsedJsonImportResult = {
+          ...parsedResult,
+          perTrackSummary: parsedResult.perTrackSummary.map((item) => {
+            const saved = confirmedMap.get(item.id);
+            return saved
+              ? {
+                  id: saved.id,
+                  title: saved.title,
+                  questionsCount: saved.questions?.length || 0,
+                  packagesCount: saved.packages?.length || 0,
+                }
+              : item;
+          }),
+        };
+
+        setImportStatus({
+          state: 'success',
+          fileName: file.name,
+          message: `יובאו ונשמרו בשרת הענן בהצלחה (${parsedResult.importedQuestionsCount} שאלות ב-${parsedResult.importedTracksCount} משחקים)!`,
+          summary: refreshedSummary,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : 'מבנה קובץ ה-JSON אינו תקין.';
+        setImportStatus({
+          state: 'error',
+          fileName: file.name,
+          message: 'לא ניתן היה לייבא את הקובץ.',
+          detail: reason,
+        });
+        showNotice(reason, true);
       }
     };
     reader.readAsText(file);
@@ -1270,7 +1372,7 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
                 ייצוא וייבוא מאגר המשחקים (JSON)
               </h2>
               <p className="text-xs text-slate-400">
-                שומר אוטומטית בענן הדפדפן, ומאפשר הורדת קובץ לגיבוי מלא ושיתוף עם מורים עמיתים או GDevelop.
+                מאפשר גיבוי מלא ושחזור של כל הרמות, חבילות הידע והשאלות ישירות אל שרת הענן Firebase.
               </p>
             </div>
 
@@ -1300,20 +1402,88 @@ export const TeacherStudioView: React.FC<TeacherStudioViewProps> = ({
                   </div>
                   <h3 className="text-sm font-bold text-white mb-1">ייבוא מאגר משחקים</h3>
                   <p className="text-xs text-slate-400 mb-4">
-                    טענו קובץ JSON שנשמר בעבר כדי לעדכן את המשחקים והרמות.
+                    טענו קובץ JSON שנשמר בעבר כדי לעדכן את המשחקים, חבילות הידע והשאלות בענן.
                   </p>
                 </div>
                 <label className="w-full py-2.5 bg-teal-600 hover:bg-teal-500 text-white font-semibold text-xs rounded-xl transition-colors cursor-pointer text-center block">
-                  <span>בחר קובץ להעלאה</span>
+                  <span>{importStatus.state === 'loading' ? 'טוען ומסנכרן לענן...' : 'בחר קובץ להעלאה'}</span>
                   <input
                     type="file"
-                    accept=".json"
+                    accept=".json,application/json"
                     onChange={handleImportJson}
+                    disabled={importStatus.state === 'loading'}
                     className="hidden"
                   />
                 </label>
               </div>
             </div>
+
+            {importStatus.state !== 'idle' && (
+              <div
+                className={`rounded-xl border p-4 text-xs space-y-2.5 ${
+                  importStatus.state === 'loading'
+                    ? 'bg-amber-950/40 border-amber-500/40 text-amber-100'
+                    : importStatus.state === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-100'
+                    : 'bg-rose-950/40 border-rose-500/50 text-rose-100'
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  {importStatus.state === 'loading' ? (
+                    <RefreshCw className="w-4 h-4 text-amber-400 animate-spin shrink-0 mt-0.5" />
+                  ) : importStatus.state === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 space-y-1">
+                    {importStatus.fileName && (
+                      <div className="text-[11px] opacity-80 font-mono">קובץ: {importStatus.fileName}</div>
+                    )}
+                    <div className="font-bold text-sm">{importStatus.message}</div>
+                    {importStatus.detail && (
+                      <div className="text-[11px] text-rose-200 bg-rose-950/60 border border-rose-500/30 rounded-lg p-2 font-mono break-all">
+                        {importStatus.detail}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {importStatus.state === 'success' && importStatus.summary && (
+                  <div className="space-y-2 pt-2 border-t border-emerald-500/20">
+                    <div className="space-y-1.5">
+                      {importStatus.summary.perTrackSummary.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-1.5"
+                        >
+                          <span className="font-semibold text-white truncate max-w-[60%]">{item.title}</span>
+                          <span className="text-[11px] text-emerald-300 font-bold">
+                            {item.questionsCount} שאלות · {item.packagesCount} חבילות
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('questions')}
+                        className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-500 text-white font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                      >
+                        עבור לבנק השאלות ({currentTrack.questions.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('tracks')}
+                        className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
+                      >
+                        עבור למאגר המשחקים ({tracks.length})
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

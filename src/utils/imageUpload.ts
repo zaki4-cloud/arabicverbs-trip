@@ -58,3 +58,57 @@ export async function optimizeImageFile(
     reader.readAsDataURL(file);
   });
 }
+
+export function getUtf8ByteLength(str: string): number {
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(str).length;
+  }
+  return unescape(encodeURIComponent(str)).length;
+}
+
+export async function compressDataUrl(
+  dataUrl: string,
+  maxWidth: number = 800,
+  maxHeight: number = 800,
+  quality: number = 0.72
+): Promise<string> {
+  if (!dataUrl || !dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onerror = () => resolve(dataUrl);
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth || height > maxHeight) {
+        if (width / height > maxWidth / maxHeight) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+
+      const compressed = canvas.toDataURL('image/jpeg', quality);
+      resolve(compressed.length < dataUrl.length ? compressed : dataUrl);
+    };
+    img.src = dataUrl;
+  });
+}
+

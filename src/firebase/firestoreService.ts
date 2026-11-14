@@ -67,9 +67,12 @@ const TRACKS_COLLECTION = 'game_tracks';
 const STUDENT_RECORDS_COLLECTION = 'student_records';
 
 /**
- * Recursively remove undefined properties so Firestore setDoc never throws on unsupported undefined values.
+ * Recursively remove undefined properties and sanitize non-finite numbers so Firestore setDoc never rejects valid objects.
  */
 function stripUndefined<T>(value: T): T {
+  if (typeof value === 'number') {
+    return (Number.isFinite(value) ? value : 0) as unknown as T;
+  }
   if (Array.isArray(value)) {
     return value
       .filter((item) => item !== undefined)
@@ -97,6 +100,13 @@ function sanitizeFirestoreId(rawId: string, prefix: string): string {
 function normalizeTrackForDiff(track: GameTrack): string {
   const { revision: _r, updatedAt: _u, ...rest } = track;
   return JSON.stringify(stripUndefined(rest));
+}
+
+function getUtf8ByteLength(str: string): number {
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(str).length;
+  }
+  return unescape(encodeURIComponent(str)).length;
 }
 
 /**
@@ -129,11 +139,12 @@ export async function saveGameTrackToFirestore(
     const baseRevision = Math.max(Number(track.revision) || 0, serverRevision);
     const nextRevision = isTeacherEdit ? baseRevision + 1 : baseRevision;
     const updatedAt = new Date().toISOString();
+    const safeTitle = (String(track.title || '').trim() || 'משחק דקדוק').slice(0, 300);
 
     const cleanedTrack = stripUndefined({
       ...track,
       id: safeId,
-      title: String(track.title || 'משחק דקדוק').slice(0, 300),
+      title: safeTitle,
       difficulty: (['basic', 'intermediate', 'advanced'].includes(String(track.difficulty))
         ? track.difficulty
         : 'basic') as DifficultyLevel,
@@ -148,6 +159,12 @@ export async function saveGameTrackToFirestore(
       ...cleanedTrack,
       isPublished: true,
     };
+
+    const payloadBytes = getUtf8ByteLength(JSON.stringify(payload));
+    if (payloadBytes > 1_020_000) {
+      const kb = Math.round(payloadBytes / 1024);
+      throw new Error(`מסמך המשחק "${safeTitle}" חורג ממגבלת 1MB של Firestore (${kb}KB).`);
+    }
 
     await setDoc(trackDocRef, payload);
 
